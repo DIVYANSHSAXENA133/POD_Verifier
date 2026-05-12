@@ -14,11 +14,11 @@ Two Lambda functions (Fetcher + Scorer), shared EFS for downloaded POD images, a
 Copy your trained checkpoint into the image build context (not committed to Git):
 
 ```bash
-# From pod_classifier/aws/
-cp ../checkpoints_v1/best.pt lambda_scorer/model/best.pt
+# From this repo's aws/ directory (paths relative to aws/)
+cp /path/to/your/checkpoints/best.pt lambda_scorer/model/best.pt
 ```
 
-`.pt` files are ignored under `pod_classifier/` via `.gitignore`.
+`.pt` files are ignored by this repository's `.gitignore`.
 
 ## Deploy (outline)
 
