@@ -1,0 +1,17 @@
+# Secrets and large artifacts
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Model checkpoints (copy locally for Docker build)
+*.pt
+*.pth
+
+# OS
+.DS_Store
