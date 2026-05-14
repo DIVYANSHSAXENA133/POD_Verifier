@@ -1,6 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: POD Quality Scoring Pipeline — Two-Lambda architecture with shared EFS and RDS PostgreSQL.
+Description: >
+  POD Quality Scoring Pipeline — single container Lambda using /tmp staging
+  for downloaded images (no shared EFS), Metabase ingest, RDS PostgreSQL.
+  FETCH_BATCH_SIZE and EphemeralStorage should be tuned together: rough peak
+  /tmp MB ≈ FETCH_BATCH_SIZE × avg_image_KB × 1000^{-2} (+ headroom).
 
 Parameters:
   Stage:
@@ -25,7 +29,7 @@ Parameters:
   FetchBatchSize:
     Type: String
     Default: "500"
-    Description: Number of images per batch
+    Description: POD images per staging batch (/tmp spike); lower if nearing ephemeral limit
 
   FlagThreshold:
     Type: String
@@ -54,7 +58,7 @@ Parameters:
 
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: VPC for Lambdas, EFS, and RDS
+    Description: VPC for Lambda and RDS
 
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
@@ -62,7 +66,14 @@ Parameters:
 
   ScorerImageUri:
     Type: String
-    Description: ECR image URI for the Scorer Lambda container
+    Description: ECR image URI for the merged POD pipeline Lambda (container)
+
+  TmpEphemeralMB:
+    Type: Number
+    Default: 5120
+    MinValue: 512
+    MaxValue: 10240
+    Description: Lambda /tmp quota (MiB); size with FETCH_BATCH_SIZE × avg image bytes
 
 Globals:
   Function:
@@ -71,119 +82,37 @@ Globals:
 
 Resources:
 
-  # --- Security Groups ---
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for POD scoring Lambdas
+      GroupDescription: Security group for POD pipeline Lambda (VPC egress)
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
 
-  EfsSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for EFS mount targets
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 2049
-          ToPort: 2049
-          SourceSecurityGroupId: !Ref LambdaSecurityGroup
-
-  # --- EFS ---
-  FileSystem:
-    Type: AWS::EFS::FileSystem
-    Properties:
-      PerformanceMode: generalPurpose
-      ThroughputMode: bursting
-      LifecyclePolicies:
-        - TransitionToIA: AFTER_7_DAYS
-      FileSystemTags:
-        - Key: Name
-          Value: !Sub pod-scoring-efs-${Stage}
-
-  MountTargetA:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref FileSystem
-      SubnetId: !Select [0, !Ref SubnetIds]
-      SecurityGroups:
-        - !Ref EfsSecurityGroup
-
-  MountTargetB:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref FileSystem
-      SubnetId: !Select [1, !Ref SubnetIds]
-      SecurityGroups:
-        - !Ref EfsSecurityGroup
-
-  AccessPoint:
-    Type: AWS::EFS::AccessPoint
-    Properties:
-      FileSystemId: !Ref FileSystem
-      PosixUser:
-        Uid: "1000"
-        Gid: "1000"
-      RootDirectory:
-        Path: /pod-scoring
-        CreationInfo:
-          OwnerUid: "1000"
-          OwnerGid: "1000"
-          Permissions: "755"
-
-  # --- Lambda Fetcher ---
-  FetcherFunction:
+  PodPipelineFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub pod-fetcher-${Stage}
-      Handler: handler.handler
-      CodeUri: ../lambda_fetcher/
-      MemorySize: 1024
+      FunctionName: !Sub pod-pipeline-${Stage}
+      PackageType: Image
+      ImageUri: !Ref ScorerImageUri
+      MemorySize: 3008
       Timeout: 900
+      EphemeralStorage:
+        Size: !Ref TmpEphemeralMB
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
         SubnetIds: !Ref SubnetIds
-      FileSystemConfigs:
-        - Arn: !GetAtt AccessPoint.Arn
-          LocalMountPath: /mnt/efs
       Environment:
         Variables:
           METABASE_URL: !Ref MetabaseUrl
           METABASE_API_KEY: !Ref MetabaseApiKey
           METABASE_CARD_ID: !Ref MetabaseCardId
-          SCORER_LAMBDA_ARN: !GetAtt ScorerFunction.Arn
           FETCH_BATCH_SIZE: !Ref FetchBatchSize
           FLAG_THRESHOLD: !Ref FlagThreshold
-          EFS_MOUNT_PATH: /mnt/efs
-      Policies:
-        - EFSWriteAccessPolicy:
-            FileSystem: !Ref FileSystem
-            AccessPoint: !Ref AccessPoint
-        - LambdaInvokePolicy:
-            FunctionName: !Ref ScorerFunction
-
-  # --- Lambda Scorer ---
-  ScorerFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub pod-scorer-${Stage}
-      PackageType: Image
-      ImageUri: !Ref ScorerImageUri
-      MemorySize: 3008
-      Timeout: 600
-      VpcConfig:
-        SecurityGroupIds:
-          - !Ref LambdaSecurityGroup
-        SubnetIds: !Ref SubnetIds
-      FileSystemConfigs:
-        - Arn: !GetAtt AccessPoint.Arn
-          LocalMountPath: /mnt/efs
-      Environment:
-        Variables:
+          STAGING_TMP_PATH: /tmp
           PG_HOST: !Ref PgHost
           PG_PORT: !Ref PgPort
           PG_DATABASE: !Ref PgDatabase
@@ -193,15 +122,11 @@ Resources:
           INPUT_SIZE: "224"
           INFERENCE_BATCH_SIZE: "64"
       Policies:
-        - EFSWriteAccessPolicy:
-            FileSystem: !Ref FileSystem
-            AccessPoint: !Ref AccessPoint
         - VPCAccessPolicy: {}
     Metadata:
       DockerContext: ../lambda_scorer
       Dockerfile: Dockerfile
 
-  # --- EventBridge Scheduler ---
   DailySchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
@@ -211,7 +136,7 @@ Resources:
       FlexibleTimeWindow:
         Mode: "OFF"
       Target:
-        Arn: !GetAtt FetcherFunction.Arn
+        Arn: !GetAtt PodPipelineFunction.Arn
         RoleArn: !GetAtt SchedulerRole.Arn
         Input: "{}"
 
@@ -226,23 +151,22 @@ Resources:
               Service: scheduler.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: InvokeFetcher
+        - PolicyName: InvokePodPipeline
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !GetAtt FetcherFunction.Arn
+                Resource: !GetAtt PodPipelineFunction.Arn
 
 Outputs:
-  FetcherFunctionArn:
-    Value: !GetAtt FetcherFunction.Arn
-
-  ScorerFunctionArn:
-    Value: !GetAtt ScorerFunction.Arn
-
-  FileSystemId:
-    Value: !Ref FileSystem
+  PodPipelineFunctionArn:
+    Description: ARN of merged Metabase fetch + scorer Lambda
+    Value: !GetAtt PodPipelineFunction.Arn
 
   ScheduleName:
     Value: !Ref DailySchedule
+
+  TmpEphemeralMB:
+    Description: Provisioned ephemeral /tmp size for the pipeline Lambda
+    Value: !Ref TmpEphemeralMB
