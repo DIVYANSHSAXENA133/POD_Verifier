@@ -1,19 +1,15 @@
-FROM public.ecr.aws/lambda/python:3.11
+FROM public.ecr.aws/lambda/python:3.12
 
-# Install system deps for OpenCV
-RUN yum install -y mesa-libGL && yum clean all
+# CPU-only PyTorch (+ torchvision for timm); reference pattern: PyTorch CPU index, not CUDA PyPI builds.
+RUN pip install --no-cache-dir \
+    torch torchvision \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Install Python dependencies
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
-# Copy model source
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
-
-# Copy model checkpoint
 COPY model/best.pt /opt/model/best.pt
-
-# Copy handler
 COPY handler.py ${LAMBDA_TASK_ROOT}/
 
 CMD ["handler.handler"]

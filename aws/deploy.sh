@@ -1,92 +1,79 @@
 #!/usr/bin/env bash
-# POD pipeline — SAM build + deploy.
+# Build POD Lambda CPU image → ECR login → push → lambda update-function-code.
+# Mirrors the Downloads reference flow; values are parameterized (account from STS unless overridden).
 #
-# Prerequisites: AWS CLI v2, SAM CLI, Docker (running), logged-in AWS credentials.
+# Local test without AWS credentials:
+#   DRY_RUN=true ./deploy.sh
 #
-# Usage:
-#   cd aws && chmod +x deploy.sh
-#   SAM_PARAMETER_OVERRIDES='Key=Val ...' ./deploy.sh           # samconfig default env
-#   ./deploy.sh prod                                             # short-hand for samconfig prod
-#
-# Export SAM_PARAMETER_OVERRIDES unless parameters are already stored by `sam deploy --guided`.
-# Keys must satisfy CloudFormation template.yaml Parameters:
-#   Stage MetabaseUrl MetabaseApiKey MetabaseCardId FetchBatchSize FlagThreshold InferenceBatchSize
-#   PgHost PgPort PgDatabase PgUser PgPassword VpcId SubnetIds ScorerImageUri [TmpEphemeralMB]
-#
-# Optional env:
-#   SAM_CONFIG_ENV      Override samconfig env (default: default). Ignored if first arg is prod|dev|default.
-#   SAM_NO_CONFIRM=true Skip interactive changeset confirmation.
-#   SAM_RESOLVE_IMAGE_REPOS=true   Let SAM create/use ECR repos (first-time image flows).
-#
-# Example:
-#   export SAM_PARAMETER_OVERRIDES='Stage=prod MetabaseUrl=https://meta.example MetabaseApiKey=secret MetabaseCardId=10989 FetchBatchSize=500 FlagThreshold=0.7 InferenceBatchSize=64 PgHost=....rds.amazonaws.com PgPort=5432 PgDatabase=pod_classifier PgUser=postgres PgPassword=secret VpcId=vpc-xxx SubnetIds=subnet-a,subnet-b ScorerImageUri=account.dkr.ecr.region.amazonaws.com/pod:latest TmpEphemeralMB=5120'
-#   ./deploy.sh prod
+# First CFN bootstrap (no Lambda yet):
+#   SKIP_LAMBDA_UPDATE=true ./deploy.sh
 #
 set -euo pipefail
 
-AWS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${AWS_ROOT}"
+AWS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CTX="${AWS_DIR}/lambda_scorer"
 
-SAM_TEMPLATE="${SAM_TEMPLATE:-infra/template.yaml}"
-CONFIG_ENV="${SAM_CONFIG_ENV:-default}"
+AWS_REGION="${AWS_REGION:-ap-south-1}"
+STAGE="${STAGE:-prod}"
+ECR_REPOSITORY="${ECR_REPOSITORY:-pod-pipeline}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+LOCAL_NAME="${LOCAL_NAME:-pod-pipeline-local}"
+SKIP_LAMBDA_UPDATE="${SKIP_LAMBDA_UPDATE:-false}"
+DRY_RUN="${DRY_RUN:-false}"
 
-usage() {
-  cat <<'EOF'
-Usage:
-  SAM_PARAMETER_OVERRIDES='Key=Val ...' ./deploy.sh [prod|dev|default] [-- extra sam deploy args]
+LAMBDA_FUNCTION="${LAMBDA_FUNCTION:-pod-pipeline-${STAGE}}"
 
-See header comments in deploy.sh for required parameter keys.
-EOF
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "==> DRY_RUN: docker build only (${CTX}) linux/amd64"
+  docker buildx build \
+    --platform linux/amd64 \
+    --provenance=false \
+    --load \
+    -t "${LOCAL_NAME}:${IMAGE_TAG}" \
+    "${CTX}"
+  echo "DRY_RUN OK: local image ${LOCAL_NAME}:${IMAGE_TAG}"
   exit 0
-}
-
-EXTRA_SAM_DEPLOY_ARGS=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help) usage ;;
-    --)
-      shift
-      EXTRA_SAM_DEPLOY_ARGS+=("$@")
-      break
-      ;;
-    prod|dev|default)
-      CONFIG_ENV="$1"
-      shift
-      ;;
-    *)
-      EXTRA_SAM_DEPLOY_ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-command -v sam >/dev/null 2>&1 || { echo "sam CLI not found"; exit 1; }
-command -v docker >/dev/null 2>&1 || { echo "docker not found"; exit 1; }
-
-DEPLOY_ARGS=(
-  --config-file infra/samconfig.toml
-  --config-env "${CONFIG_ENV}"
-)
-
-if [[ "${SAM_NO_CONFIRM:-false}" == "true" ]]; then
-  DEPLOY_ARGS+=(--no-confirm-changeset)
 fi
 
-if [[ "${SAM_RESOLVE_IMAGE_REPOS:-false}" == "true" ]]; then
-  DEPLOY_ARGS+=(--resolve-image-repos)
+if [[ -n "${AWS_ACCOUNT_ID:-}" ]]; then
+  :
+else
+  if ! AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"; then
+    echo "aws sts get-caller-identity failed; set AWS_ACCOUNT_ID or fix credentials / AWS_PROFILE." >&2
+    exit 1
+  fi
 fi
 
-if [[ -n "${SAM_PARAMETER_OVERRIDES:-}" ]]; then
-  DEPLOY_ARGS+=(--parameter-overrides "${SAM_PARAMETER_OVERRIDES}")
+REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+REMOTE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+echo "==> ECR login ${REGISTRY}"
+aws ecr get-login-password --region "${AWS_REGION}" \
+  | docker login --username AWS --password-stdin "${REGISTRY}"
+
+echo "==> docker buildx (${CTX}) linux/amd64 (same as reference deploy.sh)"
+docker buildx build \
+  --platform linux/amd64 \
+  --provenance=false \
+  -t "${LOCAL_NAME}:${IMAGE_TAG}" \
+  "${CTX}"
+
+docker tag "${LOCAL_NAME}:${IMAGE_TAG}" "${REMOTE_URI}"
+
+echo "==> docker push ${REMOTE_URI}"
+docker push "${REMOTE_URI}"
+
+echo "Image pushed to ECR!"
+echo "Image URI: ${REMOTE_URI}"
+
+if [[ "${SKIP_LAMBDA_UPDATE}" == "true" ]]; then
+  echo "SKIP_LAMBDA_UPDATE=true → skipping lambda update-function-code."
+else
+  echo "==> aws lambda update-function-code ${LAMBDA_FUNCTION}"
+  aws lambda update-function-code \
+    --function-name "${LAMBDA_FUNCTION}" \
+    --image-uri "${REMOTE_URI}" \
+    --region "${AWS_REGION}"
 fi
-
-echo "==> SAM validate (${SAM_TEMPLATE})"
-sam validate --template-file "${SAM_TEMPLATE}"
-
-echo "==> SAM build"
-sam build --template-file "${SAM_TEMPLATE}"
-
-echo "==> SAM deploy (config-env=${CONFIG_ENV})"
-sam deploy "${DEPLOY_ARGS[@]}" "${EXTRA_SAM_DEPLOY_ARGS[@]}"
 
 echo "Done."
