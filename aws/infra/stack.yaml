@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   POD pipeline — VPC Lambda (container image), EventBridge Scheduler daily trigger.
-  No SAM / Serverless transform. Deploy with aws/provision-stack.sh.
+  Handler runs in a single invocation: Metabase fetch, in-memory batch download/score,
+  Postgres flush at end. No SAM. Deploy with aws/provision-stack.sh.
 
 Parameters:
   Stage:
@@ -122,7 +123,6 @@ Resources:
           METABASE_CARD_ID: !Ref MetabaseCardId
           FETCH_BATCH_SIZE: !Ref FetchBatchSize
           FLAG_THRESHOLD: !Ref FlagThreshold
-          STAGING_TMP_PATH: /tmp
           PG_HOST: !Ref PgHost
           PG_PORT: !Ref PgPort
           PG_DATABASE: !Ref PgDatabase
@@ -163,7 +163,7 @@ Resources:
     Type: AWS::Scheduler::Schedule
     Properties:
       Name: !Sub pod-scoring-daily-${Stage}
-      Description: Trigger POD pipeline 23:55 IST (18:25 UTC)
+      Description: Trigger POD pipeline (single in-memory run, i=0) 23:55 IST (18:25 UTC)
       ScheduleExpression: cron(25 18 * * ? *)
       ScheduleExpressionTimezone: UTC
       FlexibleTimeWindow:
@@ -171,7 +171,7 @@ Resources:
       Target:
         Arn: !GetAtt PodPipelineFunction.Arn
         RoleArn: !GetAtt SchedulerRole.Arn
-        Input: "{}"
+        Input: '{"i": 0}'
 
 Outputs:
   PodPipelineFunctionArn:

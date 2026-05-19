@@ -6,12 +6,14 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .venv/
 venv/
 
-# Model checkpoints (copy locally for Docker build)
+# Model checkpoints (tracked: pipeline default weights; other *.pt ignored)
 *.pt
 *.pth
+!aws/lambda_scorer/model/best.pt
 
 # OS
 .DS_Store

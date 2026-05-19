@@ -1,15 +1,21 @@
 """
-POD Pipeline Lambda (merged Fetcher + Scorer).
+POD Pipeline Lambda — single invocation, in-memory batch loop.
 
-Triggered by EventBridge Scheduler. Fetches POD links from Metabase, downloads
-images to /tmp in batches (bounded by FETCH_BATCH_SIZE and ephemeral storage),
-runs EfficientNet inference, writes scores to PostgreSQL, then cleans staging.
+EventBridge invokes with {"i": 0} (i is accepted but the full run happens in one call).
+
+1. Fetch Metabase once → expand → total_images = len(expanded) (kept in memory).
+2. Loop while i < total_images:
+     download up to FETCH_BATCH_SIZE images into RAM (decoded RGB arrays),
+     score with EfficientNet directly from memory,
+     append results to an in-memory list, release batch memory.
+3. When i == total_images: write all results to PostgreSQL once.
+
+No S3 for shipments or images. /tmp is not used for image staging.
 """
 
 import json
 import logging
 import os
-import shutil
 import time
 from datetime import datetime, timezone
 
@@ -29,17 +35,13 @@ from src.model import ATTRIBUTE_NAMES, ATTRIBUTE_WEIGHTS, MultiHeadEfficientNet
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# --- Metabase ---
 METABASE_URL = os.environ.get("METABASE_URL", "").rstrip("/")
 METABASE_API_KEY = os.environ.get("METABASE_API_KEY", "")
 METABASE_CARD_ID = int(os.environ.get("METABASE_CARD_ID", "10989"))
 
-# --- Pipeline ---
 FETCH_BATCH_SIZE = int(os.environ.get("FETCH_BATCH_SIZE", "500"))
 FLAG_THRESHOLD = float(os.environ.get("FLAG_THRESHOLD", "0.7"))
-STAGING_ROOT = os.environ.get("STAGING_TMP_PATH", "/tmp")
 
-# --- PostgreSQL ---
 PG_HOST = os.environ.get("PG_HOST", "localhost")
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 PG_DATABASE = os.environ.get("PG_DATABASE", "pod_classifier")
@@ -103,28 +105,54 @@ def expand_pod_links(df: pd.DataFrame) -> pd.DataFrame:
     return expanded
 
 
+def download_batch_to_memory(session: requests.Session, batch_df: pd.DataFrame) -> list:
+    """
+    Download a batch of POD images into RAM as RGB uint8 arrays.
+    Returns list of dicts: awb, trip_id, pod_link, image (H,W,3) or None if failed.
+    """
+    samples = []
+    for _, row in batch_df.iterrows():
+        url = row["pod_link"]
+        awb_col = "AWB" if "AWB" in row.index else "awb"
+        trip_col = "Trip Id" if "Trip Id" in row.index else "trip_id"
+        meta = {
+            "awb": str(row.get(awb_col, "")),
+            "trip_id": str(row.get(trip_col, "")),
+            "pod_link": url,
+            "image": None,
+        }
+        try:
+            resp = session.get(url, timeout=15)
+            if resp.status_code == 200 and len(resp.content) > 500:
+                buf = np.frombuffer(resp.content, dtype=np.uint8)
+                bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+                if bgr is not None:
+                    meta["image"] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        except Exception as ex:
+            logger.warning("Failed to download %s: %s", url, ex)
+        samples.append(meta)
+    return samples
+
+
 def download_batch_to_dir(
     session: requests.Session,
     batch_df: pd.DataFrame,
     image_dir: str,
     start_idx: int,
 ) -> list:
-    """Download a batch of images to image_dir. Returns manifest entry dicts."""
+    """Disk-based download (kept for unit tests)."""
     os.makedirs(image_dir, exist_ok=True)
     manifest_entries = []
-
-    for i, (_, row) in enumerate(batch_df.iterrows()):
+    for j, (_, row) in enumerate(batch_df.iterrows()):
         url = row["pod_link"]
-        idx = start_idx + i
+        idx = start_idx + j
         ext = url.split(".")[-1].split("?")[0]
         if len(ext) > 5:
             ext = "png"
         filename = f"pod_{idx}.{ext}"
         filepath = os.path.join(image_dir, filename)
-
         awb_col = "AWB" if "AWB" in row.index else "awb"
         trip_col = "Trip Id" if "Trip Id" in row.index else "trip_id"
-
         try:
             resp = session.get(url, timeout=15)
             if resp.status_code == 200 and len(resp.content) > 500:
@@ -136,14 +164,38 @@ def download_batch_to_dir(
                     "trip_id": str(row.get(trip_col, "")),
                     "pod_link": url,
                 })
-        except Exception as e:
-            logger.warning("Failed to download %s: %s", url, e)
-
+        except Exception as ex:
+            logger.warning("Failed to download %s: %s", url, ex)
     return manifest_entries
 
 
+class InMemoryImageDataset(Dataset):
+    """EfficientNet input tensors built from in-memory RGB images."""
+
+    def __init__(self, images_rgb: list, input_size: int = 224):
+        self.images_rgb = images_rgb
+        self.input_size = input_size
+        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+    def __len__(self):
+        return len(self.images_rgb)
+
+    def __getitem__(self, idx):
+        image = self.images_rgb[idx]
+        if image is None:
+            image = np.zeros((self.input_size, self.input_size, 3), dtype=np.uint8)
+        else:
+            image = cv2.resize(image, (self.input_size, self.input_size))
+
+        image = image.astype(np.float32) / 255.0
+        image = (image - self.mean) / self.std
+        image = np.transpose(image, (2, 0, 1))
+        return torch.from_numpy(image), idx
+
+
 class TmpImageDataset(Dataset):
-    """Reads images from local paths for inference."""
+    """Reads images from local paths (unit tests)."""
 
     def __init__(self, image_paths: list, input_size: int = 224):
         self.image_paths = image_paths
@@ -197,6 +249,7 @@ def get_db_connection():
 
 @torch.no_grad()
 def score_batch(model, device, image_paths: list) -> pd.DataFrame:
+    """Score images from disk paths (unit tests)."""
     dataset = TmpImageDataset(image_paths, input_size=INPUT_SIZE)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
@@ -221,6 +274,42 @@ def score_batch(model, device, image_paths: list) -> pd.DataFrame:
             results.append(row)
 
     return pd.DataFrame(results)
+
+
+@torch.no_grad()
+def score_samples_in_memory(model, device, samples: list) -> list:
+    """Score in-memory RGB images; returns list of result dicts (no Postgres)."""
+    valid = [(i, s) for i, s in enumerate(samples) if s.get("image") is not None]
+    if not valid:
+        return []
+
+    indices = [i for i, _ in valid]
+    images_rgb = [samples[i]["image"] for i in indices]
+
+    dataset = InMemoryImageDataset(images_rgb, input_size=INPUT_SIZE)
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    weights = ATTRIBUTE_WEIGHTS.to(device)
+
+    scored_rows = []
+    for images, batch_idx in loader:
+        images = images.to(device)
+        logits = model(images)
+        probs = {k: torch.sigmoid(v) for k, v in logits.items()}
+        scores = sum(probs[ATTRIBUTE_NAMES[i]] * weights[i] for i in range(4))
+
+        for j in range(len(batch_idx)):
+            src = samples[indices[batch_idx[j].item()]]
+            scored_rows.append({
+                "awb": src["awb"],
+                "trip_id": src["trip_id"],
+                "pod_score": scores[j].item(),
+                "pod_link": src["pod_link"],
+                "context_valid_prob": probs["context_valid"][j].item(),
+                "package_visible_prob": probs["package_visible"][j].item(),
+                "label_readable_prob": probs["label_readable"][j].item(),
+                "image_clarity_prob": probs["image_clarity"][j].item(),
+            })
+    return scored_rows
 
 
 def write_to_postgres(conn, results: list, run_date: str):
@@ -248,6 +337,8 @@ def write_to_postgres(conn, results: list, run_date: str):
 
 
 def log_scoring_summary(results: list, batch_id: int, threshold: float, elapsed: float):
+    if not results:
+        return
     scores = [r["pod_score"] for r in results]
     scores_arr = np.array(scores)
 
@@ -263,7 +354,7 @@ def log_scoring_summary(results: list, batch_id: int, threshold: float, elapsed:
     worst = sorted(results, key=lambda r: r["pod_score"])[:5]
     worst_str = ", ".join(f"{r['awb']} ({r['pod_score']:.4f})" for r in worst)
 
-    logger.info("[BATCH %s] Scored %s images in %.1fs", batch_id, len(results), elapsed)
+    logger.info("[BATCH i=%s] Scored %s images in %.1fs", batch_id, len(results), elapsed)
     logger.info(
         "  Scores: mean=%.4f | median=%.4f | min=%.4f | max=%.4f",
         scores_arr.mean(), np.median(scores_arr), scores_arr.min(), scores_arr.max(),
@@ -279,12 +370,40 @@ def log_scoring_summary(results: list, batch_id: int, threshold: float, elapsed:
     logger.info("  Worst: %s", worst_str)
 
 
-def _cleanup_batch_dir(batch_dir: str):
-    """Remove staging directory after batch completes."""
+def _normalize_event(raw):
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    if raw is None or not isinstance(raw, dict):
+        return {}
+    if "body" in raw and isinstance(raw["body"], str):
+        try:
+            inner = json.loads(raw["body"])
+            if isinstance(inner, dict):
+                return inner
+        except json.JSONDecodeError:
+            pass
+    return raw
+
+
+def _parse_event(raw):
+    evt = _normalize_event(raw)
+    i = int(evt.get("i", evt.get("e", 0)))
+    return evt, i
+
+
+def _flush_results_to_postgres(results: list, run_date: str) -> float:
+    if not results:
+        logger.warning("No scored rows to write to PostgreSQL")
+        return 0.0
+    pg_start = time.perf_counter()
+    conn = get_db_connection()
     try:
-        shutil.rmtree(batch_dir, ignore_errors=True)
-    except OSError as e:
-        logger.warning("Cleanup failed for %s: %s", batch_dir, e)
+        write_to_postgres(conn, results, run_date)
+    finally:
+        conn.close()
+    elapsed = time.perf_counter() - pg_start
+    logger.info("Wrote %s rows to PostgreSQL (run_date=%s)", len(results), run_date)
+    return elapsed
 
 
 def process_one_batch(
@@ -292,11 +411,17 @@ def process_one_batch(
     device,
     manifest_entries: list,
     image_dir: str,
-    batch_id: int,
+    i_offset: int,
     threshold: float,
     run_date: str,
 ):
-    """Score images referenced by manifest_entries under image_dir; persist and cleanup."""
+    """Disk-based batch (unit tests)."""
+    import os
+    import shutil
+
+    def _cleanup(batch_dir: str):
+        shutil.rmtree(batch_dir, ignore_errors=True)
+
     image_paths = []
     metadata = []
     for entry in manifest_entries:
@@ -306,15 +431,12 @@ def process_one_batch(
             metadata.append(entry)
 
     if not image_paths:
-        logger.warning("Batch %s: no valid images on disk, skipping inference", batch_id)
-        _cleanup_batch_dir(image_dir)
-        return 0
+        _cleanup(image_dir)
+        return {"scored": 0, "inference_s": 0.0, "postgres_s": 0.0, "cleanup_s": 0.0}
 
-    logger.info("Batch %s: scoring %s images", batch_id, len(image_paths))
-
-    inference_start = time.time()
+    t0 = time.perf_counter()
     scores_df = score_batch(model, device, image_paths)
-    inference_elapsed = time.time() - inference_start
+    inference_s = time.perf_counter() - t0
 
     results = []
     for (_, row), meta in zip(scores_df.iterrows(), metadata):
@@ -329,95 +451,113 @@ def process_one_batch(
             "image_clarity_prob": row["image_clarity_prob"],
         })
 
-    log_scoring_summary(results, batch_id, threshold, inference_elapsed)
-
-    conn = get_db_connection()
-    try:
-        write_to_postgres(conn, results, run_date)
-    finally:
-        conn.close()
-
-    logger.info("Batch %s: written %s rows to PostgreSQL", batch_id, len(results))
-
-    _cleanup_batch_dir(image_dir)
-
-    return len(results)
+    log_scoring_summary(results, i_offset, threshold, inference_s)
+    pg_s = _flush_results_to_postgres(results, run_date)
+    _cleanup(image_dir)
+    return {"scored": len(results), "inference_s": inference_s, "postgres_s": pg_s, "cleanup_s": 0.0}
 
 
 def handler(event, context):
-    start_time = time.time()
+    start = time.perf_counter()
     req_id = getattr(context, "aws_request_id", "local")
-    run_date = datetime.utcnow().strftime("%Y-%m-%d")
+    timing: dict = {}
 
-    logger.info("=== POD Pipeline Lambda (%s) ===", req_id)
-    logger.info(
-        "Fetch batch=%s | inference_bs=%s | threshold=%s | staging=%s",
-        FETCH_BATCH_SIZE, BATCH_SIZE, FLAG_THRESHOLD, STAGING_ROOT,
-    )
+    evt, start_i = _parse_event(event)
+    logger.info("=== POD Pipeline (in-memory) | request=%s ===", req_id)
+
+    if start_i != 0:
+        logger.warning(
+            "Ignoring start_i=%s — full pipeline runs in a single invocation from i=0",
+            start_i,
+        )
 
     if not METABASE_URL or not METABASE_API_KEY:
         logger.error("METABASE_URL and METABASE_API_KEY must be set")
         return {"statusCode": 500, "body": "Missing Metabase credentials"}
 
-    staging_base = os.path.join(STAGING_ROOT, "pod_scoring", req_id)
-
-    session = build_session()
-    df = fetch_pod_data(session)
-    if df.empty:
-        logger.warning("No data returned from Metabase")
-        return {"statusCode": 200, "body": json.dumps({"message": "No data", "run_date": run_date})}
-
-    expanded = expand_pod_links(df)
-    if expanded.empty:
-        logger.warning("No valid POD links found")
-        return {"statusCode": 200, "body": json.dumps({"message": "No POD links", "run_date": run_date})}
-
-    total_images = len(expanded)
-    n_batches = (total_images + FETCH_BATCH_SIZE - 1) // FETCH_BATCH_SIZE
-    total_downloaded = 0
-    total_scored = 0
-
-    model, device = get_model()
-
-    for batch_id in range(n_batches):
-        batch_start = batch_id * FETCH_BATCH_SIZE
-        batch_end = min(batch_start + FETCH_BATCH_SIZE, total_images)
-        batch_df = expanded.iloc[batch_start:batch_end]
-        image_dir = os.path.join(staging_base, run_date, f"batch_{batch_id}")
-
-        logger.info("Batch %s: downloading %s images...", batch_id, len(batch_df))
-        manifest_entries = download_batch_to_dir(session, batch_df, image_dir, start_idx=batch_start)
-        total_downloaded += len(manifest_entries)
-
-        if not manifest_entries:
-            logger.warning("Batch %s: no downloads, skipping", batch_id)
-            continue
-
-        scored = process_one_batch(
-            model, device, manifest_entries, image_dir, batch_id, FLAG_THRESHOLD, run_date,
-        )
-        total_scored += scored
-
-    # Remove empty parent dirs left under staging
-    try:
-        shutil.rmtree(staging_base, ignore_errors=True)
-    except OSError:
-        pass
-
-    elapsed = time.time() - start_time
     logger.info(
-        "=== Pipeline complete | POD links=%s | downloaded=%s | scored=%s | %.1fs ===",
-        total_images, total_downloaded, total_scored, elapsed,
+        "FETCH_BATCH_SIZE=%s | inference_bs=%s | threshold=%s",
+        FETCH_BATCH_SIZE, BATCH_SIZE, FLAG_THRESHOLD,
     )
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "run_date": run_date,
-            "total_pod_links": total_images,
-            "total_downloaded": total_downloaded,
-            "total_scored_rows": total_scored,
-            "batches_processed": n_batches,
-            "duration_seconds": round(elapsed, 1),
-        }),
+    session = build_session()
+    run_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+    t0 = time.perf_counter()
+    df = fetch_pod_data(session)
+    timing["metabase_fetch_s"] = round(time.perf_counter() - t0, 3)
+
+    if df.empty:
+        return {"statusCode": 200, "body": json.dumps({"message": "No data"})}
+
+    t0 = time.perf_counter()
+    expanded = expand_pod_links(df)
+    timing["expand_pod_links_s"] = round(time.perf_counter() - t0, 3)
+
+    total_images = len(expanded)
+    if total_images == 0:
+        return {"statusCode": 200, "body": json.dumps({"message": "No POD links"})}
+
+    logger.info("total_images=%s — processing in memory with batch_size=%s", total_images, FETCH_BATCH_SIZE)
+
+    t0 = time.perf_counter()
+    model, device = get_model()
+    timing["model_load_s"] = round(time.perf_counter() - t0, 3)
+
+    all_results: list = []
+    i = 0
+    batch_count = 0
+    timing["download_images_s"] = 0.0
+    timing["efficientnet_inference_s"] = 0.0
+    total_downloaded = 0
+
+    while i < total_images:
+        end = min(i + FETCH_BATCH_SIZE, total_images)
+        batch_df = expanded.iloc[i:end]
+        batch_count += 1
+
+        logger.info("Iteration %s: rows [%s,%s) of %s", batch_count, i, end, total_images)
+
+        t_dl = time.perf_counter()
+        samples = download_batch_to_memory(session, batch_df)
+        timing["download_images_s"] += time.perf_counter() - t_dl
+        total_downloaded += sum(1 for s in samples if s.get("image") is not None)
+
+        t_inf = time.perf_counter()
+        chunk_results = score_samples_in_memory(model, device, samples)
+        inf_elapsed = time.perf_counter() - t_inf
+        timing["efficientnet_inference_s"] += inf_elapsed
+
+        if chunk_results:
+            log_scoring_summary(chunk_results, i, FLAG_THRESHOLD, inf_elapsed)
+            all_results.extend(chunk_results)
+
+        # Release batch image buffers before next iteration
+        del samples
+        i = end
+
+    timing["download_images_s"] = round(timing["download_images_s"], 3)
+    timing["efficientnet_inference_s"] = round(timing["efficientnet_inference_s"], 3)
+
+    timing["postgres_write_s"] = round(_flush_results_to_postgres(all_results, run_date), 3)
+
+    wall = time.perf_counter() - start
+    timing["wall_clock_total_s"] = round(wall, 3)
+
+    logger.info(
+        "[timing] total_images=%s batches=%s downloaded=%s scored=%s wall=%.3fs",
+        total_images, batch_count, total_downloaded, len(all_results), wall,
+    )
+
+    body = {
+        "run_date": run_date,
+        "total_images": total_images,
+        "total_downloaded": total_downloaded,
+        "total_scored_rows": len(all_results),
+        "batches_processed": batch_count,
+        "final_i": total_images,
+        "postgres_flushed": True,
+        "duration_seconds": round(wall, 1),
+        "phase_timings_seconds": timing,
     }
+    return {"statusCode": 200, "body": json.dumps(body, default=str)}

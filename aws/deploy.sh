@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build POD Lambda CPU image → ECR login → push → lambda update-function-code.
-# Mirrors the Downloads reference flow; values are parameterized (account from STS unless overridden).
+# Handler: single invocation, in-memory batch download/score (see lambda_scorer/handler.py).
+# Infra: aws/infra/stack.yaml + aws/provision-stack.sh (Scheduler sends {"i": 0}).
 #
 # Local test without AWS credentials:
 #   DRY_RUN=true ./deploy.sh

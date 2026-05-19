@@ -3,7 +3,7 @@
 Rough staging peak on Lambda /tmp for the merged POD pipeline (one fetch batch).
 
 This ignores model weights, overlays, manifest JSON overhead, etc. —
-keep headroom (~30–40%) versus TmpEphemeralMB in template.yaml.
+keep headroom (~30–40%) versus TmpEphemeralMB in infra/stack.yaml.
 
 Usage:
   python3 ephemeral_peak_mb.py --fetch-batch-size 500 --avg-kb-per-image 200
