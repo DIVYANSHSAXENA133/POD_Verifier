@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   POD pipeline — VPC Lambda (container image), EventBridge Scheduler daily trigger.
-  Handler runs in a single invocation: Metabase fetch, in-memory batch download/score,
-  Postgres flush at end. No SAM. Deploy with aws/provision-stack.sh.
+  Self-invoking handler: Metabase fetch, in-memory batch download, EfficientNet scoring,
+  Postgres write per batch, then re-invokes for next batch. No SAM. Deploy with
+  aws/provision-stack.sh.
 
 Parameters:
   Stage:
@@ -71,6 +72,17 @@ Parameters:
 
 Resources:
 
+  PipelineStateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub pod-pipeline-state-${Stage}-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldRuns
+            Status: Enabled
+            ExpirationInDays: 7
+            Prefix: pod-pipeline-runs/
+
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -95,6 +107,20 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: SelfInvokeAndS3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:pod-pipeline-${Stage}
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub arn:aws:s3:::${PipelineStateBucket}/pod-pipeline-runs/*
 
   PodPipelineFunction:
     Type: AWS::Lambda::Function
@@ -131,6 +157,7 @@ Resources:
           MODEL_PATH: /opt/model/best.pt
           INPUT_SIZE: "224"
           INFERENCE_BATCH_SIZE: !Ref InferenceBatchSize
+          S3_STATE_BUCKET: !Ref PipelineStateBucket
 
   SchedulerInvokeLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -178,6 +205,8 @@ Outputs:
     Value: !GetAtt PodPipelineFunction.Arn
   PodPipelineFunctionName:
     Value: !Ref PodPipelineFunction
+  StateBucketName:
+    Value: !Ref PipelineStateBucket
   ScheduleName:
     Value: !Ref DailySchedule
   ScheduleArn:

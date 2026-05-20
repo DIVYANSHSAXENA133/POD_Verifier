@@ -250,6 +250,7 @@ def test_handler_requires_metabase_env(monkeypatch):
     monkeypatch.delenv("METABASE_URL", raising=False)
     monkeypatch.delenv("METABASE_API_KEY", raising=False)
     monkeypatch.setenv("METABASE_CARD_ID", "1")
+    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
     h = reload_handler()
     rsp = h.handler({}, MagicMock(aws_request_id="req-env"))
     assert rsp["statusCode"] == 500
@@ -258,8 +259,8 @@ def test_handler_requires_metabase_env(monkeypatch):
 def test_handler_empty_metabase_response(monkeypatch, tmp_path):
     monkeypatch.setenv("METABASE_URL", "https://mb.fake")
     monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("STAGING_TMP_PATH", str(tmp_path))
     monkeypatch.setenv("METABASE_CARD_ID", "10989")
+    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
 
     h = reload_handler()
     fake_session = MagicMock()
@@ -275,11 +276,12 @@ def test_handler_empty_metabase_response(monkeypatch, tmp_path):
 def test_handler_no_pod_links_after_expand(monkeypatch, tmp_path):
     monkeypatch.setenv("METABASE_URL", "https://mb.fake")
     monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("STAGING_TMP_PATH", str(tmp_path))
+    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
 
     h = reload_handler()
 
-    with patch.object(h, "fetch_pod_data", return_value=pd.DataFrame({"POD": ["nope-not-url"]})):
+    with patch.object(h, "store_expanded_links", return_value=None), \
+         patch.object(h, "fetch_pod_data", return_value=pd.DataFrame({"POD": ["nope-not-url"]})):
         rsp = h.handler({"i": 0}, MagicMock(aws_request_id="q"))
 
     loaded = json.loads(rsp["body"])
@@ -287,10 +289,11 @@ def test_handler_no_pod_links_after_expand(monkeypatch, tmp_path):
     assert loaded.get("message") == "No POD links"
 
 
-def test_handler_loops_batches_in_memory_and_flushes_postgres_once(monkeypatch):
+def test_handler_first_invocation_processes_batch_and_invokes_self(monkeypatch):
     monkeypatch.setenv("METABASE_URL", "https://mb.fake")
     monkeypatch.setenv("METABASE_API_KEY", "secret")
     monkeypatch.setenv("FETCH_BATCH_SIZE", "2")
+    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
 
     h = reload_handler()
     rows = [{"AWB": f"A{n}", "Trip Id": f"T{n}", "POD": f"https://u{n}.jpg"} for n in range(5)]
@@ -303,9 +306,13 @@ def test_handler_loops_batches_in_memory_and_flushes_postgres_once(monkeypatch):
         "label_readable_prob": 0.3, "image_clarity_prob": 0.4,
     }]
 
+    expanded_df = h.expand_pod_links(pd.DataFrame(rows))
+
     with ExitStack() as stack:
         stack.enter_context(patch.object(h, "build_session", return_value=MagicMock()))
         stack.enter_context(patch.object(h, "fetch_pod_data", return_value=pd.DataFrame(rows)))
+        stack.enter_context(patch.object(h, "store_expanded_links", return_value=None))
+        stack.enter_context(patch.object(h, "load_expanded_links", return_value=expanded_df))
         stack.enter_context(
             patch.object(
                 h,
@@ -318,19 +325,65 @@ def test_handler_loops_batches_in_memory_and_flushes_postgres_once(monkeypatch):
             patch.object(h, "score_samples_in_memory", return_value=chunk_result),
         )
         flush = stack.enter_context(patch.object(h, "_flush_results_to_postgres", return_value=0.01))
+        invoke_mock = stack.enter_context(patch.object(h, "invoke_self", return_value=None))
 
-        rsp = h.handler({"i": 0}, MagicMock(aws_request_id="full"))
+        rsp = h.handler({"i": 0}, MagicMock(aws_request_id="first"))
 
-    assert score_mock.call_count == 3
+    score_mock.assert_called_once()
     flush.assert_called_once()
-    assert len(flush.call_args[0][0]) == 3
+    invoke_mock.assert_called_once()
+    invoke_payload = invoke_mock.call_args[0][0]
+    assert invoke_payload["i"] == 2
+    assert invoke_payload["total_count"] == 5
 
     summary = json.loads(rsp["body"])
-    assert summary["total_images"] == 5
-    assert summary["batches_processed"] == 3
-    assert summary["final_i"] == 5
-    assert summary["postgres_flushed"] is True
-    assert summary["total_scored_rows"] == 3
+    assert summary["status"] == "continuing"
+    assert summary["processed_so_far"] == 2
+
+
+def test_handler_final_invocation_writes_to_postgres_and_cleans_up(monkeypatch):
+    monkeypatch.setenv("METABASE_URL", "https://mb.fake")
+    monkeypatch.setenv("METABASE_API_KEY", "secret")
+    monkeypatch.setenv("FETCH_BATCH_SIZE", "2")
+    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
+
+    h = reload_handler()
+
+    chunk_result = [{
+        "awb": "x", "trip_id": "y", "pod_score": 0.5, "pod_link": "https://",
+        "context_valid_prob": 0.1, "package_visible_prob": 0.2,
+        "label_readable_prob": 0.3, "image_clarity_prob": 0.4,
+    }]
+
+    expanded_df = pd.DataFrame([
+        {"AWB": "A0", "Trip Id": "T0", "pod_link": "https://u0.jpg"},
+        {"AWB": "A1", "Trip Id": "T1", "pod_link": "https://u1.jpg"},
+    ])
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(h, "build_session", return_value=MagicMock()))
+        stack.enter_context(patch.object(h, "load_expanded_links", return_value=expanded_df))
+        stack.enter_context(
+            patch.object(
+                h,
+                "download_batch_to_memory",
+                return_value=[{"awb": "x", "trip_id": "y", "pod_link": "https://", "image": object()}],
+            ),
+        )
+        stack.enter_context(patch.object(h, "get_model", return_value=(MagicMock(), torch.device("cpu"))))
+        stack.enter_context(
+            patch.object(h, "score_samples_in_memory", return_value=chunk_result),
+        )
+        flush = stack.enter_context(patch.object(h, "_flush_results_to_postgres", return_value=0.01))
+        cleanup = stack.enter_context(patch.object(h, "cleanup_s3_state", return_value=None))
+
+        rsp = h.handler({"i": 0, "total_count": 2, "run_id": "test-run"}, MagicMock(aws_request_id="final"))
+
+    flush.assert_called_once()
+    cleanup.assert_called_once()
+
+    summary = json.loads(rsp["body"])
+    assert summary["status"] == "complete"
 
 
 def test_process_one_batch_no_files_returns_zero(monkeypatch, tmp_path):

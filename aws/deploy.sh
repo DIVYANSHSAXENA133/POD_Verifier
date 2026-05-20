@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build POD Lambda CPU image → ECR login → push → lambda update-function-code.
-# Handler: single invocation, in-memory batch download/score (see lambda_scorer/handler.py).
+# Handler: self-invoking batch processor — downloads images to memory, scores with
+# EfficientNet, writes to Postgres each batch, then invokes itself for the next batch.
 # Infra: aws/infra/stack.yaml + aws/provision-stack.sh (Scheduler sends {"i": 0}).
 #
 # Local test without AWS credentials:
