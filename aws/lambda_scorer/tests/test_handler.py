@@ -1,403 +1,284 @@
 """
-Tests for aws/lambda_scorer/handler.py (merged POD pipeline).
+Test suite for the single-invocation POD pipeline handler.
 
-Run from `aws/lambda_scorer/`:
-  pip install -r requirements.txt -r requirements-dev.txt
-  pytest -v
+Design goals covered:
+  * expand/dedup correctness
+  * concurrent download partitions success vs failure, never drops an input
+  * idempotent upsert SQL shape (ON CONFLICT) + failure rows recorded
+  * resume-from-checkpoint skips already-scored rows
+  * WHOLE-DATASET COVERAGE in one invocation with ample time (no timeout)
+  * clock-aware continuation fires (and only fires) near the wall
+  * preprocessing shape + normalization
+
+Pipeline-logic tests mock the model and DB, so they run without torch or a
+database. A separate torch-gated test exercises real inference wiring.
 """
 
-from __future__ import annotations
-
-import importlib
 import json
 import os
-from contextlib import ExitStack
-from unittest.mock import MagicMock, patch
+import sys
 
-import cv2
 import numpy as np
 import pandas as pd
 import pytest
-import torch
-import torch.nn as nn
 
-import handler
-from src.model import ATTRIBUTE_NAMES
-
-
-def reload_handler():
-    """Reload handler after env tweaks."""
-    return importlib.reload(handler)
-
-
-@pytest.fixture(autouse=True)
-def reset_handler_model_cache():
-    handler._model = None
-    handler._device = None
-    yield
-    handler._model = None
-    handler._device = None
-
-
-class _FakeLogitModel(nn.Module):
-    """Constant logits → sigmoid = 1/(1+e^-logit)."""
-
-    def __init__(self, logit: float = 0.0):
-        super().__init__()
-        self.logit = logit
-
-    def forward(self, x: torch.Tensor) -> dict:
-        b = x.shape[0]
-        dev = x.device
-        return {name: torch.full((b,), self.logit, device=dev) for name in ATTRIBUTE_NAMES}
-
-
-def test_expand_pod_links_uppercase_pod_column():
-    df = pd.DataFrame(
-        {
-            "AWB": ["A1"],
-            "Trip Id": ["T1"],
-            "POD": [" https://cdn/a.jpg , https://cdn/b.jpg "],
-        }
-    )
-    out = reload_handler().expand_pod_links(df)
-    assert len(out) == 2
-    assert list(out["pod_link"]) == ["https://cdn/a.jpg", "https://cdn/b.jpg"]
-    assert out.iloc[0]["AWB"] == "A1"
-
-
-def test_expand_pod_links_lowercase_pod_column():
-    df = pd.DataFrame({"awb": ["x"], "pod": ["https://one.png"], "trip_id": ["1"]})
-    out = reload_handler().expand_pod_links(df)
-    assert len(out) == 1
-    assert out.iloc[0]["pod_link"] == "https://one.png"
-
-
-def test_expand_pod_links_skips_non_http_and_empty():
-    df = pd.DataFrame({"POD": ["ftp://x, https://ok.jpg", "", None]})
-    out = reload_handler().expand_pod_links(df)
-    assert len(out) == 1
-
-
-def test_expand_pod_links_raises_without_pod_columns():
-    df = pd.DataFrame({"x": [1]})
-    with pytest.raises(ValueError, match="POD column not found"):
-        reload_handler().expand_pod_links(df)
-
-
-def test_fetch_pod_data_builds_frame():
-    h = reload_handler()
-    h.METABASE_URL = "https://mb.example.com"
-    h.METABASE_API_KEY = "secret"
-    h.METABASE_CARD_ID = 42
-
-    mock_session = MagicMock()
-    resp = MagicMock()
-    resp.json.return_value = [{"col": "v"}]
-    resp.raise_for_status = MagicMock()
-    mock_session.post.return_value = resp
-
-    out = h.fetch_pod_data(mock_session)
-    mock_session.post.assert_called_once()
-    assert len(out) == 1
-    url = mock_session.post.call_args[0][0]
-    assert "/api/card/42/query/json" in url
-
-
-def test_download_batch_skips_when_body_too_small(tmp_path):
-    h = reload_handler()
-    batch = pd.DataFrame({"pod_link": ["https://a.jpg"], "AWB": ["1"], "Trip Id": ["t"]})
-    session = MagicMock()
-    session.get.return_value = MagicMock(status_code=200, content=b"x" * 100)
-
-    dest = tmp_path / "imgs"
-    manifest = h.download_batch_to_dir(session, batch, str(dest), start_idx=0)
-    assert manifest == []
-    if dest.exists():
-        assert os.listdir(dest) == []
-
-
-def test_download_batch_writes_file_and_manifest(tmp_path):
-    h = reload_handler()
-    img_dir = tmp_path / "d"
-    url = "https://host/pod.JPG?q=1"
-    batch = pd.DataFrame({"pod_link": [url], "AWB": ["AWB9"], "Trip Id": ["TR123"]})
-
-    blob = os.urandom(600)
-    session = MagicMock()
-    session.get.return_value = MagicMock(status_code=200, content=blob)
-
-    manifest = h.download_batch_to_dir(session, batch, str(img_dir), start_idx=7)
-
-    assert len(manifest) == 1
-    assert manifest[0]["filename"] == "pod_7.JPG"
-    assert manifest[0]["awb"] == "AWB9"
-    assert manifest[0]["trip_id"] == "TR123"
-
-    filepath = img_dir / "pod_7.JPG"
-    assert filepath.is_file()
-    assert filepath.read_bytes() == blob
-
-
-def test_download_batch_long_fake_extension_maps_to_png(tmp_path):
-    h = reload_handler()
-    awful = "https://x.invalid/" + "a" * 10 + "?x=1"
-    batch = pd.DataFrame({"pod_link": [awful], "AWB": ["a"], "Trip Id": ["t"]})
-    session = MagicMock()
-    session.get.return_value = MagicMock(status_code=200, content=b"y" * 600)
-
-    manifest = h.download_batch_to_dir(session, batch, str(tmp_path), start_idx=0)
-    assert manifest[0]["filename"] == "pod_0.png"
-
-
-def test_tmp_image_dataset_zeros_for_missing_file(tmp_path):
-    h = reload_handler()
-    ghost = str(tmp_path / "ghost_missing.png")
-    ds = h.TmpImageDataset([ghost], input_size=64)
-    tensor, out_path = ds[0]
-    assert tensor.shape == (3, 64, 64)
-    assert out_path == ghost
-
-
-def test_tmp_image_dataset_reads_real_image(tmp_path, monkeypatch):
-    h = reload_handler()
-    monkeypatch.setattr(h, "INPUT_SIZE", 32)
-
-    png = tmp_path / "real.png"
-    img = np.zeros((40, 50, 3), dtype=np.uint8)
-    img[:] = (10, 20, 30)
-    cv2.imwrite(str(png), img)
-
-    ds = h.TmpImageDataset([str(png)], input_size=32)
-    tensor, out_path = ds[0]
-    assert tensor.dtype == torch.float32
-    assert tensor.shape == (3, 32, 32)
-
-
-def test_score_batch_outputs_expected_columns(monkeypatch, tmp_path):
-    h = reload_handler()
-    monkeypatch.setattr(h, "BATCH_SIZE", 2)
-    monkeypatch.setattr(h, "INPUT_SIZE", 32)
-
-    img_path = tmp_path / "sc.png"
-    cv2.imwrite(str(img_path), np.zeros((8, 8, 3), dtype=np.uint8))
-
-    device = torch.device("cpu")
-    model = _FakeLogitModel(0.0)
-    df = h.score_batch(model, device, [str(img_path)])
-
-    assert len(df) == 1
-    expected_cols = {
-        "image_path",
-        "pod_score",
-        "context_valid_prob",
-        "package_visible_prob",
-        "label_readable_prob",
-        "image_clarity_prob",
-    }
-    assert set(df.columns) == expected_cols
-
-    expected_prob = torch.sigmoid(torch.tensor(0.0)).item()
-    np.testing.assert_allclose(df.iloc[0]["context_valid_prob"], expected_prob, rtol=1e-5)
-
-
-def test_write_to_postgres_invokes_execute_values(monkeypatch):
-    h = reload_handler()
-
-    conn = MagicMock()
-    fake_cur = MagicMock()
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=fake_cur)
-    ctx.__exit__ = MagicMock(return_value=False)
-    conn.cursor.return_value = ctx
-
-    results = [{
-        "awb": "1",
-        "trip_id": "2",
-        "pod_score": 0.9,
-        "pod_link": "https://z",
-        "context_valid_prob": 0.1,
-        "package_visible_prob": 0.2,
-        "label_readable_prob": 0.3,
-        "image_clarity_prob": 0.4,
-    }]
-
-    with patch.object(h.psycopg2.extras, "execute_values") as ev:
-        h.write_to_postgres(conn, results, "2026-05-01")
-
-    ev.assert_called_once()
-    assert ev.call_args[1].get("page_size") == 200
-    conn.commit.assert_called_once()
-
-
-def test_write_to_postgres_empty(monkeypatch):
-    h = reload_handler()
-
-    conn = MagicMock()
-    fake_cur = MagicMock()
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=fake_cur)
-    ctx.__exit__ = MagicMock(return_value=False)
-    conn.cursor.return_value = ctx
-
-    with patch.object(h.psycopg2.extras, "execute_values") as ev:
-        h.write_to_postgres(conn, [], "2099-01-01")
-
-    ev.assert_called_once()
-
-
-def test_handler_requires_metabase_env(monkeypatch):
-    monkeypatch.delenv("METABASE_URL", raising=False)
-    monkeypatch.delenv("METABASE_API_KEY", raising=False)
-    monkeypatch.setenv("METABASE_CARD_ID", "1")
-    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
-    h = reload_handler()
-    rsp = h.handler({}, MagicMock(aws_request_id="req-env"))
-    assert rsp["statusCode"] == 500
-
-
-def test_handler_empty_metabase_response(monkeypatch, tmp_path):
-    monkeypatch.setenv("METABASE_URL", "https://mb.fake")
-    monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("METABASE_CARD_ID", "10989")
-    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
-
-    h = reload_handler()
-    fake_session = MagicMock()
-
-    with patch.object(h, "build_session", return_value=fake_session), patch.object(h, "fetch_pod_data", return_value=pd.DataFrame()):
-        rsp = h.handler({"i": 0}, MagicMock(aws_request_id="xyz"))
-
-    body = json.loads(rsp["body"])
-    assert rsp["statusCode"] == 200
-    assert body.get("message") == "No data"
-
-
-def test_handler_no_pod_links_after_expand(monkeypatch, tmp_path):
-    monkeypatch.setenv("METABASE_URL", "https://mb.fake")
-    monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
-
-    h = reload_handler()
-
-    with patch.object(h, "store_expanded_links", return_value=None), \
-         patch.object(h, "fetch_pod_data", return_value=pd.DataFrame({"POD": ["nope-not-url"]})):
-        rsp = h.handler({"i": 0}, MagicMock(aws_request_id="q"))
-
-    loaded = json.loads(rsp["body"])
-    assert rsp["statusCode"] == 200
-    assert loaded.get("message") == "No POD links"
-
-
-def test_handler_first_invocation_processes_batch_and_invokes_self(monkeypatch):
-    monkeypatch.setenv("METABASE_URL", "https://mb.fake")
-    monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("FETCH_BATCH_SIZE", "2")
-    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
-
-    h = reload_handler()
-    rows = [{"AWB": f"A{n}", "Trip Id": f"T{n}", "POD": f"https://u{n}.jpg"} for n in range(5)]
-
-    dummy_model = MagicMock()
-    dummy_device = torch.device("cpu")
-    chunk_result = [{
-        "awb": "x", "trip_id": "y", "pod_score": 0.5, "pod_link": "https://",
-        "context_valid_prob": 0.1, "package_visible_prob": 0.2,
-        "label_readable_prob": 0.3, "image_clarity_prob": 0.4,
-    }]
-
-    expanded_df = h.expand_pod_links(pd.DataFrame(rows))
-
-    with ExitStack() as stack:
-        stack.enter_context(patch.object(h, "build_session", return_value=MagicMock()))
-        stack.enter_context(patch.object(h, "fetch_pod_data", return_value=pd.DataFrame(rows)))
-        stack.enter_context(patch.object(h, "store_expanded_links", return_value=None))
-        stack.enter_context(patch.object(h, "load_expanded_links", return_value=expanded_df))
-        stack.enter_context(
-            patch.object(
-                h,
-                "download_batch_to_memory",
-                return_value=[{"awb": "x", "trip_id": "y", "pod_link": "https://", "image": object()}],
-            ),
-        )
-        stack.enter_context(patch.object(h, "get_model", return_value=(dummy_model, dummy_device)))
-        score_mock = stack.enter_context(
-            patch.object(h, "score_samples_in_memory", return_value=chunk_result),
-        )
-        flush = stack.enter_context(patch.object(h, "_flush_results_to_postgres", return_value=0.01))
-        invoke_mock = stack.enter_context(patch.object(h, "invoke_self", return_value=None))
-
-        rsp = h.handler({"i": 0}, MagicMock(aws_request_id="first"))
-
-    score_mock.assert_called_once()
-    flush.assert_called_once()
-    invoke_mock.assert_called_once()
-    invoke_payload = invoke_mock.call_args[0][0]
-    assert invoke_payload["i"] == 2
-    assert invoke_payload["total_count"] == 5
-
-    summary = json.loads(rsp["body"])
-    assert summary["status"] == "continuing"
-    assert summary["processed_so_far"] == 2
-
-
-def test_handler_final_invocation_writes_to_postgres_and_cleans_up(monkeypatch):
-    monkeypatch.setenv("METABASE_URL", "https://mb.fake")
-    monkeypatch.setenv("METABASE_API_KEY", "secret")
-    monkeypatch.setenv("FETCH_BATCH_SIZE", "2")
-    monkeypatch.setenv("S3_STATE_BUCKET", "test-bucket")
-
-    h = reload_handler()
-
-    chunk_result = [{
-        "awb": "x", "trip_id": "y", "pod_score": 0.5, "pod_link": "https://",
-        "context_valid_prob": 0.1, "package_visible_prob": 0.2,
-        "label_readable_prob": 0.3, "image_clarity_prob": 0.4,
-    }]
-
-    expanded_df = pd.DataFrame([
-        {"AWB": "A0", "Trip Id": "T0", "pod_link": "https://u0.jpg"},
-        {"AWB": "A1", "Trip Id": "T1", "pod_link": "https://u1.jpg"},
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import handler as H  # noqa: E402
+
+
+# --------------------------------------------------------------------------- #
+# Helpers / fakes
+# --------------------------------------------------------------------------- #
+
+def _png_bytes(w=32, h=32):
+    import cv2
+    img = (np.random.rand(h, w, 3) * 255).astype(np.uint8)
+    ok, buf = cv2.imencode(".png", img)
+    return buf.tobytes()
+
+
+class FakeResp:
+    def __init__(self, content=b"", status=200):
+        self.content = content
+        self.status_code = status
+
+
+class FakeSession:
+    """Returns a valid PNG for most URLs; configurable failures."""
+    def __init__(self, fail_urls=None, http_status=None):
+        self.fail_urls = fail_urls or set()
+        self.http_status = http_status or {}
+
+    def get(self, url, timeout=0):
+        if url in self.fail_urls:
+            raise ConnectionError("boom")
+        if url in self.http_status:
+            return FakeResp(_png_bytes(), self.http_status[url])
+        return FakeResp(_png_bytes(), 200)
+
+
+class FakeCursor:
+    def __init__(self, conn):
+        self.conn = conn
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+    def execute(self, sql, params=None):
+        self.conn._last_sql = sql
+    def fetchall(self):
+        return list(self.conn.done_rows)
+
+
+class FakeConn:
+    def __init__(self, done_rows=None):
+        self.done_rows = done_rows or []
+        self.upserted = []
+        self.committed = 0
+    def cursor(self):
+        return FakeCursor(self)
+    def commit(self):
+        self.committed += 1
+    def close(self):
+        pass
+
+
+class FakeContext:
+    def __init__(self, remaining_ms):
+        self._r = remaining_ms
+    def get_remaining_time_in_millis(self):
+        return self._r
+
+
+def _fake_score_prepared(model, device, successes):
+    out = []
+    for s in successes:
+        out.append({
+            "awb": s["awb"], "trip_id": s["trip_id"], "pod_link": s["pod_link"],
+            "status": "scored", "failure_reason": None, "pod_score": 0.9,
+            "context_valid_prob": 0.9, "package_visible_prob": 0.9,
+            "label_readable_prob": 0.9, "image_clarity_prob": 0.9,
+        })
+    return out
+
+
+@pytest.fixture
+def wire(monkeypatch):
+    conn = FakeConn()
+    monkeypatch.setattr(H, "get_model", lambda: (object(), "cpu"))
+    monkeypatch.setattr(H, "get_db_connection", lambda: conn)
+    monkeypatch.setattr(H, "score_prepared", _fake_score_prepared)
+    monkeypatch.setattr(H, "emit_coverage", lambda *a, **k: None)
+
+    def _capture_upsert(c, rows, run_date):
+        c.upserted.extend(rows)
+        return len(rows)
+    monkeypatch.setattr(H, "upsert_results", _capture_upsert)
+    monkeypatch.setattr(H, "METABASE_URL", "http://mb", raising=False)
+    monkeypatch.setattr(H, "METABASE_API_KEY", "k", raising=False)
+    return conn
+
+
+def _mb_df(n):
+    return pd.DataFrame([
+        {"AWB": f"AWB{i}", "Trip Id": f"T{i}", "POD": f"http://img/{i}.png"}
+        for i in range(n)
     ])
 
-    with ExitStack() as stack:
-        stack.enter_context(patch.object(h, "build_session", return_value=MagicMock()))
-        stack.enter_context(patch.object(h, "load_expanded_links", return_value=expanded_df))
-        stack.enter_context(
-            patch.object(
-                h,
-                "download_batch_to_memory",
-                return_value=[{"awb": "x", "trip_id": "y", "pod_link": "https://", "image": object()}],
-            ),
-        )
-        stack.enter_context(patch.object(h, "get_model", return_value=(MagicMock(), torch.device("cpu"))))
-        stack.enter_context(
-            patch.object(h, "score_samples_in_memory", return_value=chunk_result),
-        )
-        flush = stack.enter_context(patch.object(h, "_flush_results_to_postgres", return_value=0.01))
-        cleanup = stack.enter_context(patch.object(h, "cleanup_s3_state", return_value=None))
 
-        rsp = h.handler({"i": 0, "total_count": 2, "run_id": "test-run"}, MagicMock(aws_request_id="final"))
+# --------------------------------------------------------------------------- #
+# Unit tests
+# --------------------------------------------------------------------------- #
 
-    flush.assert_called_once()
-    cleanup.assert_called_once()
-
-    summary = json.loads(rsp["body"])
-    assert summary["status"] == "complete"
+def test_expand_dedup_and_filter():
+    df = pd.DataFrame([
+        {"AWB": "A1", "Trip Id": "T1", "POD": "http://a/1.png, http://a/2.png"},
+        {"AWB": "A1", "Trip Id": "T1", "POD": "http://a/1.png"},
+        {"AWB": "A2", "Trip Id": "T2", "POD": "not_a_url, http://a/3.png"},
+        {"AWB": "A3", "Trip Id": "T3", "POD": ""},
+    ])
+    out = H.expand_pod_links(df)
+    assert set(out["pod_link"]) == {"http://a/1.png", "http://a/2.png", "http://a/3.png"}
+    assert len(out) == 3
 
 
-def test_process_one_batch_no_files_returns_zero(monkeypatch, tmp_path):
-    h = reload_handler()
-    monkeypatch.setattr(h, "get_db_connection", MagicMock())
+def test_preprocess_shape_and_normalization():
+    img = (np.random.rand(50, 40, 3) * 255).astype(np.uint8)
+    chw = H.preprocess_image(img, size=224, normalize=True)
+    assert chw.shape == (3, 224, 224)
+    assert chw.dtype == np.float32
+    raw = H.preprocess_image(img, size=224, normalize=False)
+    assert raw.min() >= 0.0 and raw.max() <= 1.0
+    assert chw.min() < 0.0
 
-    stats = h.process_one_batch(
-        None,
-        torch.device("cpu"),
-        [{"filename": "gone.jpg", "awb": "", "trip_id": "", "pod_link": ""}],
-        str(tmp_path / "nosuch"),
-        0,
-        0.5,
-        "2099-01-01",
-    )
-    assert stats["scored"] == 0
-    h.get_db_connection.assert_not_called()
+
+def test_download_and_prepare_outcomes():
+    s = FakeSession(fail_urls={"http://img/x.png"}, http_status={"http://img/y.png": 404})
+    ok = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/ok.png"})
+    assert ok["status"] == "scored" and "chw" in ok
+    exc = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/x.png"})
+    assert exc["status"] == "download_failed" and exc["failure_reason"] == "ConnectionError"
+    http = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/y.png"})
+    assert http["status"] == "download_failed" and http["failure_reason"] == "http_404"
+
+
+def test_download_window_partitions_all_inputs():
+    rows = [{"awb": f"a{i}", "trip_id": "t", "pod_link": f"http://img/{i}.png"} for i in range(20)]
+    s = FakeSession(fail_urls={"http://img/3.png", "http://img/9.png"})
+    succ, fail = H.download_window(s, rows)
+    assert len(succ) + len(fail) == 20
+    assert {f["pod_link"] for f in fail} == {"http://img/3.png", "http://img/9.png"}
+
+
+def test_upsert_sql_is_idempotent(monkeypatch):
+    captured = {}
+    def fake_execute_values(cur, sql, tuples, page_size=100):
+        captured["sql"] = sql
+        captured["tuples"] = tuples
+    monkeypatch.setattr(H.psycopg2.extras, "execute_values", fake_execute_values)
+    conn = FakeConn()
+    rows = [{"awb": "a", "trip_id": "t", "pod_link": "u", "status": "scored",
+             "pod_score": 0.8, "context_valid_prob": 0.1, "package_visible_prob": 0.2,
+             "label_readable_prob": 0.3, "image_clarity_prob": 0.4}]
+    n = H.upsert_results(conn, rows, "2026-07-05")
+    assert n == 1
+    assert "ON CONFLICT (awb, pod_link, run_date) DO UPDATE" in captured["sql"]
+    assert conn.committed == 1
+
+
+def test_load_done_keys():
+    conn = FakeConn(done_rows=[("A1", "u1"), ("A2", "u2")])
+    assert H.load_done_keys(conn, "2026-07-05") == {("A1", "u1"), ("A2", "u2")}
+
+
+# --------------------------------------------------------------------------- #
+# Handler-level: coverage, resume, continuation
+# --------------------------------------------------------------------------- #
+
+def test_handler_covers_whole_dataset_one_invocation(wire, monkeypatch):
+    N = 2500
+    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "build_session", lambda: FakeSession())
+    monkeypatch.setattr(H, "WINDOW_SIZE", 800, raising=False)
+
+    resp = H.handler({}, FakeContext(600_000))
+    body = json.loads(resp["body"])
+    assert body["status"] == "complete"
+    assert body["scored_this_invocation"] == N
+    assert body["failed_this_invocation"] == 0
+    assert len(wire.upserted) == N
+    assert body["continuation"] == 0
+
+
+def test_handler_records_failures_as_outcomes(wire, monkeypatch):
+    N = 100
+    fail = {f"http://img/{i}.png" for i in (5, 10, 42)}
+    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "build_session", lambda: FakeSession(fail_urls=fail))
+    resp = H.handler({}, FakeContext(600_000))
+    body = json.loads(resp["body"])
+    assert body["scored_this_invocation"] == 97
+    assert body["failed_this_invocation"] == 3
+    assert body["scored_this_invocation"] + body["failed_this_invocation"] == N
+    assert len([r for r in wire.upserted if r["status"] == "download_failed"]) == 3
+
+
+def test_handler_resume_skips_done(wire, monkeypatch):
+    N = 50
+    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "build_session", lambda: FakeSession())
+    done = {(f"AWB{i}", f"http://img/{i}.png") for i in range(20)}
+    monkeypatch.setattr(H, "load_done_keys", lambda c, d: done)
+    resp = H.handler({}, FakeContext(600_000))
+    body = json.loads(resp["body"])
+    assert body["already_done_at_start"] == 20
+    assert body["scored_this_invocation"] == 30
+    assert len(wire.upserted) == 30
+
+
+def test_handler_continuation_near_wall(wire, monkeypatch):
+    N = 3000
+    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "build_session", lambda: FakeSession())
+    monkeypatch.setattr(H, "WINDOW_SIZE", 500, raising=False)
+    monkeypatch.setattr(H, "CONTINUATION_SAFETY_MS", 90_000, raising=False)
+    called = {}
+    monkeypatch.setattr(H, "invoke_continuation",
+                        lambda rid, rd, c: called.update(run_id=rid, cont=c))
+
+    class Ctx:
+        def __init__(self):
+            self.calls = 0
+        def get_remaining_time_in_millis(self):
+            self.calls += 1
+            return 600_000 if self.calls == 1 else 10_000
+
+    resp = H.handler({}, Ctx())
+    body = json.loads(resp["body"])
+    assert body["status"] == "continuing"
+    assert called["cont"] == 1
+    assert body["scored_this_invocation"] == 500
+
+
+# --------------------------------------------------------------------------- #
+# Torch-gated: real inference wiring
+# --------------------------------------------------------------------------- #
+
+torch = pytest.importorskip("torch", reason="torch not installed")
+
+def test_score_prepared_real_math():
+    import torch as T
+    from src.model import ATTRIBUTE_NAMES
+
+    class FakeModel:
+        def __call__(self, batch):
+            b = batch.shape[0]
+            return {n: T.zeros(b) for n in ATTRIBUTE_NAMES}
+
+    successes = [{"awb": "a", "trip_id": "t", "pod_link": "u",
+                  "chw": np.zeros((3, 224, 224), dtype=np.float32)} for _ in range(3)]
+    out = H.score_prepared(FakeModel(), T.device("cpu"), successes)
+    assert len(out) == 3
+    assert abs(out[0]["pod_score"] - 0.5) < 1e-6
+    assert abs(out[0]["context_valid_prob"] - 0.5) < 1e-6

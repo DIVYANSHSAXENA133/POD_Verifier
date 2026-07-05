@@ -1,8 +1,11 @@
+# Runtime deps for the POD scorer Lambda image.
+# torch / torchvision / numpy are pinned in the Dockerfile (CPU index).
+# numpy kept <2 to match the torch 2.2.x numpy bridge.
 requests>=2.31.0
 urllib3>=2.0.0
-timm>=0.9.12
-opencv-python-headless>=4.8.0
-pandas>=2.0.0
-numpy>=1.24.0
+timm>=0.9.16,<1.1
+opencv-python-headless==4.9.0.80
+pandas>=2.0.0,<2.3
+numpy<2
 psycopg2-binary>=2.9.9
 boto3>=1.34.0

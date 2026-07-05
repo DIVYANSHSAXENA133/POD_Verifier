@@ -17,3 +17,9 @@ venv/
 
 # OS
 .DS_Store
+aws/lambda_scorer/.venv/
+**/__pycache__/
+*.pyc
+**/.pytest_cache/
+aws/eval/eval_out/
+aws/eval/_gold_images_tmp/

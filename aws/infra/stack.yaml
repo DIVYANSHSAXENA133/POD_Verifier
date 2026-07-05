@@ -36,6 +36,22 @@ Parameters:
     Type: String
     Default: "64"
 
+  MaxDownloadWorkers:
+    Type: String
+    Default: "64"
+    Description: Concurrent image download threads (tune vs source host 429s / NAT)
+
+  WindowSize:
+    Type: String
+    Default: "800"
+    Description: Images held in memory per window (bounds peak memory)
+
+  ImagenetNormalize:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Apply ImageNet mean/std at inference (must match training preprocessing)
+
   PgHost:
     Type: String
     Description: PostgreSQL endpoint
@@ -108,19 +124,19 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
       Policies:
-        - PolicyName: SelfInvokeAndS3Access
+        - PolicyName: SelfInvokeMetricsAndDLQ
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Effect: Allow           # bounded self-continuation (Layer 2 safety valve)
                 Action: lambda:InvokeFunction
                 Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:pod-pipeline-${Stage}
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:DeleteObject
-                Resource: !Sub arn:aws:s3:::${PipelineStateBucket}/pod-pipeline-runs/*
+              - Effect: Allow           # coverage metrics
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow           # dead-letter for exhausted async retries
+                Action: sqs:SendMessage
+                Resource: !GetAtt PipelineDLQ.Arn
 
   PodPipelineFunction:
     Type: AWS::Lambda::Function
@@ -132,10 +148,13 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         ImageUri: !Ref ScorerImageUri
-      MemorySize: 3008
+      MemorySize: 10240          # ~6 vCPU — CPU is bought with memory (design §5)
       Timeout: 900
+      ReservedConcurrentExecutions: 3   # daily run + retry/continuation headroom
+      DeadLetterConfig:
+        TargetArn: !GetAtt PipelineDLQ.Arn
       EphemeralStorage:
-        Size: !Ref TmpEphemeralMB
+        Size: !Ref TmpEphemeralMB   # in-memory design uses no /tmp; keep small
       Architectures:
         - x86_64
       VpcConfig:
@@ -147,8 +166,13 @@ Resources:
           METABASE_URL: !Ref MetabaseUrl
           METABASE_API_KEY: !Ref MetabaseApiKey
           METABASE_CARD_ID: !Ref MetabaseCardId
-          FETCH_BATCH_SIZE: !Ref FetchBatchSize
           FLAG_THRESHOLD: !Ref FlagThreshold
+          MAX_DOWNLOAD_WORKERS: !Ref MaxDownloadWorkers
+          WINDOW_SIZE: !Ref WindowSize
+          INFERENCE_BATCH_SIZE: !Ref InferenceBatchSize
+          IMAGENET_NORMALIZE: !Ref ImagenetNormalize
+          CONTINUATION_SAFETY_MS: "90000"
+          MAX_CONTINUATIONS: "5"
           PG_HOST: !Ref PgHost
           PG_PORT: !Ref PgPort
           PG_DATABASE: !Ref PgDatabase
@@ -156,8 +180,22 @@ Resources:
           PG_PASSWORD: !Ref PgPassword
           MODEL_PATH: /opt/model/best.pt
           INPUT_SIZE: "224"
-          INFERENCE_BATCH_SIZE: !Ref InferenceBatchSize
-          S3_STATE_BUCKET: !Ref PipelineStateBucket
+
+  # Async retries: a timeout counts as a failure → AWS re-invokes; the resume
+  # checkpoint makes each retry advance. Exhausted retries land in the DLQ.
+  PodPipelineEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref PodPipelineFunction
+      Qualifier: "$LATEST"
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 3600
+
+  PipelineDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub pod-pipeline-dlq-${Stage}
+      MessageRetentionPeriod: 1209600   # 14 days
 
   SchedulerInvokeLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -190,7 +228,7 @@ Resources:
     Type: AWS::Scheduler::Schedule
     Properties:
       Name: !Sub pod-scoring-daily-${Stage}
-      Description: Trigger POD pipeline (single in-memory run, i=0) 23:55 IST (18:25 UTC)
+      Description: Trigger POD pipeline (single invocation, whole dataset) 23:55 IST (18:25 UTC)
       ScheduleExpression: cron(25 18 * * ? *)
       ScheduleExpressionTimezone: UTC
       FlexibleTimeWindow:
@@ -198,7 +236,10 @@ Resources:
       Target:
         Arn: !GetAtt PodPipelineFunction.Arn
         RoleArn: !GetAtt SchedulerRole.Arn
-        Input: '{"i": 0}'
+        Input: '{}'
+        RetryPolicy:
+          MaximumRetryAttempts: 2
+          MaximumEventAgeInSeconds: 3600
 
 Outputs:
   PodPipelineFunctionArn:

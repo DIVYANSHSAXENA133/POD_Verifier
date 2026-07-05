@@ -1,19 +1,32 @@
 #!/usr/bin/env bash
 # Build POD Lambda CPU image → ECR login → push → lambda update-function-code.
-# Handler: self-invoking batch processor — downloads images to memory, scores with
-# EfficientNet, writes to Postgres each batch, then invokes itself for the next batch.
-# Infra: aws/infra/stack.yaml + aws/provision-stack.sh (Scheduler sends {"i": 0}).
+# NO SAM — plain Docker + AWS CLI. Infra is CloudFormation (aws/infra/stack.yaml)
+# applied by aws/provision-stack.sh.
 #
-# Local test without AWS credentials:
+# Handler: single-invocation, resilient scorer — fetch Metabase, expand links,
+# concurrently download images to memory, ImageNet-normalized EfficientNet scoring,
+# idempotent upsert to Postgres, resume + bounded self-continuation. Scheduler
+# sends an empty event {} once per day.
+#
+# Local build smoke-test without AWS credentials:
 #   DRY_RUN=true ./deploy.sh
 #
-# First CFN bootstrap (no Lambda yet):
+# First CFN bootstrap (push image only, no Lambda yet):
 #   SKIP_LAMBDA_UPDATE=true ./deploy.sh
+#
+# Routine update (build, push, roll Lambda to the new image):
+#   ./deploy.sh
 #
 set -euo pipefail
 
 AWS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CTX="${AWS_DIR}/lambda_scorer"
+
+# The trained checkpoint is baked into the image — fail fast if it's missing.
+if [[ ! -f "${CTX}/model/best.pt" ]]; then
+  echo "ERROR: ${CTX}/model/best.pt not found. Commit/copy the trained checkpoint first." >&2
+  exit 1
+fi
 
 AWS_REGION="${AWS_REGION:-ap-south-1}"
 STAGE="${STAGE:-prod}"

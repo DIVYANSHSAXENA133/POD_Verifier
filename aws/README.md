@@ -1,35 +1,61 @@
 # POD scoring pipeline — AWS
 
-Single container Lambda: Metabase ingest, `/tmp` staging, EfficientNet inference, PostgreSQL. Daily trigger via EventBridge Scheduler.
+Single container Lambda that scores Proof-of-Delivery photos for quality and flags
+bad PODs for the operations team. **Single invocation per day** covers the whole
+dataset: Metabase ingest → expand links (bound to AWB/trip) → concurrent in-memory
+image download → ImageNet-normalized EfficientNet inference → idempotent write to
+PostgreSQL. Triggered once daily by EventBridge Scheduler.
 
-**No SAM.** Infra is plain **CloudFormation** ([`infra/stack.yaml`](infra/stack.yaml)) applied with [`provision-stack.sh`](provision-stack.sh); image delivery is [`deploy.sh`](deploy.sh).
+**No SAM.** Infra is plain **CloudFormation** ([`infra/stack.yaml`](infra/stack.yaml))
+applied with [`provision-stack.sh`](provision-stack.sh); image delivery is
+[`deploy.sh`](deploy.sh). Full runbook: [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+## Architecture (single invocation, resilient)
+
+One EventBridge trigger (empty event `{}`) runs one invocation that processes the
+entire day in bounded-memory windows and is safe against the 15-minute wall:
+
+- **Concurrent downloads** — `ThreadPoolExecutor`; the download, not the model, was
+  the original bottleneck.
+- **Bounded memory** — one `WINDOW_SIZE` of images in memory at a time; flat regardless
+  of dataset size.
+- **Resume-from-checkpoint** — scored rows in Postgres are the checkpoint; a retry
+  processes only the remainder.
+- **Idempotent upsert** — unique `(awb, pod_link, run_date)`; retries fill gaps, never dup.
+- **Every input gets an outcome** — download failures are recorded (`status='download_failed'`),
+  never silently dropped and never penalised.
+- **Clock-aware continuation** — near the wall it flushes and queues exactly one
+  checkpointed continuation (bounded by `MAX_CONTINUATIONS`); async retries + SQS DLQ
+  back it up. See [`SINGLE_INVOCATION_DESIGN.md`](SINGLE_INVOCATION_DESIGN.md) §6.
 
 ## Configuration
 
-At runtime the Lambda reads **Metabase** (`METABASE_URL`, `METABASE_API_KEY`, `METABASE_CARD_ID`), **batching** (`FETCH_BATCH_SIZE`, `INFERENCE_BATCH_SIZE`), **threshold** (`FLAG_THRESHOLD`), and **Postgres** (`PG_*`) from **environment variables** set in the stack template (not baked into code).
+Runtime env (set by CloudFormation, not baked into code): **Metabase**
+(`METABASE_URL`, `METABASE_API_KEY`, `METABASE_CARD_ID`), **pipeline tuning**
+(`MAX_DOWNLOAD_WORKERS`, `WINDOW_SIZE`, `INFERENCE_BATCH_SIZE`), **scoring**
+(`FLAG_THRESHOLD`, `IMAGENET_NORMALIZE`), **resilience** (`CONTINUATION_SAFETY_MS`,
+`MAX_CONTINUATIONS`), and **Postgres** (`PG_*`). See [`config.env.example`](config.env.example);
+use Secrets Manager / CI secrets for real passwords and API keys.
 
-See [`config.env.example`](config.env.example) for naming; use Secrets Manager / CI secrets for real passwords and API keys.
+> **Do not disable `IMAGENET_NORMALIZE`.** The model was trained with ImageNet
+> normalization; scoring without it collapses recall (see [`PRODUCT_SIGNOFF.md`](PRODUCT_SIGNOFF.md)).
 
 ## Layout
 
-- `lambda_scorer/` — Docker image: `Dockerfile`, `handler.py`, `model/best.pt`, `src/`.
-- `infra/` — **`stack.yaml`** (CloudFormation), `schema.sql`, `ephemeral_peak_mb.py`.
-- `deploy.sh` — build CPU image, push to ECR; updates Lambda unless `SKIP_LAMBDA_UPDATE=true`.
-- `provision-stack.sh` — `aws cloudformation deploy` stack (VPC, Lambda, Scheduler, IAM, env vars).
-- `config.env.example` — reference only.
+- `lambda_scorer/` — Docker image: `Dockerfile`, `handler.py`, `model/best.pt`, `src/`, `tests/`.
+- `infra/` — `stack.yaml` (CloudFormation), `schema.sql` (v2, with the idempotency key), `ephemeral_peak_mb.py`.
+- `eval/` — `evaluate_model.py` + `run_gold_eval.sh`: measure the model against a human gold set.
+- `deploy.sh` — build CPU image, push to ECR, roll the Lambda (`DRY_RUN`/`SKIP_LAMBDA_UPDATE` supported).
+- `provision-stack.sh` — `aws cloudformation deploy` (VPC, Lambda, Scheduler, DLQ, IAM, env).
+- `DEPLOYMENT.md` — step-by-step deploy. `PRODUCT_SIGNOFF.md` / `ENGINEERING_QA_REPORT.md` — QA + ship decision.
 
 ## Model weights (`lambda_scorer/model/best.pt`)
 
-Trained checkpoint at `model/best.pt` (tracked in Git). Docker copies it to `/opt/model/best.pt`.
+Trained `MultiHeadEfficientNet` (EfficientNet-B0 backbone, 4 attribute heads) checkpoint,
+tracked in Git and copied into the image at `/opt/model/best.pt`. The Docker build
+verifies it loads into the architecture with 0 key mismatches.
 
-Dummy init checkpoint: `python3 aws/scripts/create_init_checkpoint.py`
-
-## `/tmp` sizing
-
-Rough peak vs `FETCH_BATCH_SIZE`: `python3 infra/ephemeral_peak_mb.py --fetch-batch-size 500 ...`  
-Tune **`TmpEphemeralMB`** (`TMP_EPHEMERAL_MB` export for `provision-stack.sh`).
-
-## Unit tests
+## Tests
 
 ```bash
 cd aws/lambda_scorer && python3 -m venv .venv && source .venv/bin/activate \
@@ -38,58 +64,10 @@ cd aws/lambda_scorer && python3 -m venv .venv && source .venv/bin/activate \
   && pytest tests/ -v
 ```
 
-## Smoke-test Docker build (no AWS)
-
-Same `docker buildx build --platform linux/amd64 --provenance=false` path as production deploy; skips ECR/Lambda:
+## Build smoke-test (no AWS)
 
 ```bash
-cd aws && chmod +x deploy.sh && DRY_RUN=true ./deploy.sh
+cd aws && DRY_RUN=true ./deploy.sh
 ```
 
-Requires Docker Desktop/daemon. Loads a local image **`pod-pipeline-local:${IMAGE_TAG:-latest}`**.
-
-## First-time deploy
-
-1. **RDS schema:** `psql -f infra/schema.sql` …
-2. **ECR:** create repo (Console/CLI); set `ECR_REPOSITORY`/`IMAGE_TAG` to match.
-3. **Push image only** (no Lambda yet — skips `update-function-code`):
-
-   ```bash
-   cd aws && chmod +x deploy.sh provision-stack.sh
-   export AWS_REGION=ap-south-1
-   export ECR_REPOSITORY=pod-pipeline
-   export IMAGE_TAG=latest
-   export STAGE=prod
-   SKIP_LAMBDA_UPDATE=true ./deploy.sh
-   ```
-
-   Use the printed URI for **`SCORER_IMAGE_URI`** in step 4 (e.g.  
-   `account.dkr.ecr.ap-south-1.amazonaws.com/pod-pipeline:latest`).
-
-4. **Create stack** (private subnets comma-separated; secrets from env/CI):
-
-   ```bash
-   export STACK_NAME=pod-scoring-prod
-   export VPC_ID=vpc-xxx
-   export SUBNET_IDS=subnet-a,subnet-b
-   export METABASE_URL=https://your-metabase
-   export METABASE_API_KEY=***
-   export PG_HOST=your-db.region.rds.amazonaws.com
-   export PG_PASSWORD=***
-   export SCORER_IMAGE_URI="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
-   ./provision-stack.sh
-   ```
-
-5. **Later image updates:** build, push, roll Lambda to the new digest:
-
-   ```bash
-   ./deploy.sh
-   ```
-
-   Default **`LAMBDA_FUNCTION=pod-pipeline-${STAGE}`** (override if you renamed the function).
-
-**Schedule:** cron **25 18 UTC** daily (tune in `stack.yaml` if you need a different wall time).
-
-## GitHub Projects
-
-Optional tracking in GitHub Projects for ops tasks.
+**Schedule:** cron `25 18` UTC daily (23:55 IST); tune in `stack.yaml`.

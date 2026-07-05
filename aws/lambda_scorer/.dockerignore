@@ -1,0 +1,12 @@
+# Keep the build context (and image) small. The venv alone is >1GB.
+.venv/
+venv/
+tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+requirements-dev.txt
+model/README.txt
+*.md
+.DS_Store
