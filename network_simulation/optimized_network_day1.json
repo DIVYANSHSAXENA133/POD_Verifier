@@ -1,0 +1,2001 @@
+{
+  "config": {
+    "pickup_hr": 17.0,
+    "halt_hr": 1.5,
+    "depart_hr": 18.5,
+    "stop_min": 7,
+    "road_factor": 1.4,
+    "green_hr": 20.5,
+    "yellow_hr": 21.5,
+    "cross_dock_min": 20,
+    "lm_cost_per_order": 30,
+    "day_number": 1
+  },
+  "vehicles": [
+    {
+      "type": "Big",
+      "capacity": 500,
+      "cost": 2000,
+      "speed": 10
+    },
+    {
+      "type": "Medium",
+      "capacity": 250,
+      "cost": 1500,
+      "speed": 15
+    },
+    {
+      "type": "Small",
+      "capacity": 50,
+      "cost": 1000,
+      "speed": 40
+    }
+  ],
+  "stats": {
+    "orders": 5730,
+    "stores": 13,
+    "warehouse_used": 8,
+    "hub_used": 11
+  },
+  "summary": {
+    "total_orders": 5730,
+    "fm_cost": 96000,
+    "lm_cost": 171900,
+    "total_cost": 267900,
+    "cost_per_order": 46.75,
+    "warehouses": 8
+  },
+  "hubs": [
+    {
+      "id": 342,
+      "name": "Nykaa now RR Nagar",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 313,
+      "name": "QuickMarathahalli Hub",
+      "type": "franchise_hub",
+      "lat": 12.9591,
+      "lng": 77.6974
+    },
+    {
+      "id": 1,
+      "name": "Marathahalli Hub (560037)",
+      "type": "lm_hub",
+      "lat": 12.9591,
+      "lng": 77.6974
+    },
+    {
+      "id": 98,
+      "name": "Vijayanagar Hub",
+      "type": "franchise_hub",
+      "lat": 12.925,
+      "lng": 77.5838
+    },
+    {
+      "id": 329,
+      "name": "Nykaa now Nagasandra",
+      "type": "franchise_hub",
+      "lat": 13.0485,
+      "lng": 77.517
+    },
+    {
+      "id": 144,
+      "name": "Mathikere Hub (560054-1)",
+      "type": "franchise_hub",
+      "lat": 13.02,
+      "lng": 77.57
+    },
+    {
+      "id": 45,
+      "name": "HSR Layout Hub (560102-1)",
+      "type": "franchise_hub",
+      "lat": 12.9116,
+      "lng": 77.6389
+    },
+    {
+      "id": 60,
+      "name": "Sundar Nagar Hub",
+      "type": "lm_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 96,
+      "name": "Mathikere Hub (560054)",
+      "type": "franchise_hub",
+      "lat": 13.02,
+      "lng": 77.57
+    },
+    {
+      "id": 2,
+      "name": "BTM Layout Hub",
+      "type": "lm_hub",
+      "lat": 12.9166,
+      "lng": 77.6101
+    },
+    {
+      "id": 310,
+      "name": "onDemandTest Hub",
+      "type": "franchise_hub",
+      "lat": 12.9116,
+      "lng": 77.6389
+    },
+    {
+      "id": 312,
+      "name": "Konanakunte Hub",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 195,
+      "name": "Jayanagar Hub",
+      "type": "franchise_hub",
+      "lat": 12.925,
+      "lng": 77.5838
+    },
+    {
+      "id": 291,
+      "name": "Chandapura Hub",
+      "type": "lm_hub",
+      "lat": 12.816,
+      "lng": 77.694
+    },
+    {
+      "id": 167,
+      "name": "DEVARABEESANAHALLI (D.B.Halli) Hub",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 70,
+      "name": "Marathahalli Hub (560037-1)",
+      "type": "franchise_hub",
+      "lat": 12.9591,
+      "lng": 77.6974
+    },
+    {
+      "id": 323,
+      "name": "Quick Whitefield Hub",
+      "type": "franchise_hub",
+      "lat": 12.9698,
+      "lng": 77.75
+    },
+    {
+      "id": 289,
+      "name": "Domlur Hub",
+      "type": "lm_hub",
+      "lat": 12.961,
+      "lng": 77.6387
+    },
+    {
+      "id": 7,
+      "name": "Hebbal Hub",
+      "type": "lm_hub",
+      "lat": 13.0358,
+      "lng": 77.597
+    },
+    {
+      "id": 149,
+      "name": "HSR Layout Hub (560102)",
+      "type": "franchise_hub",
+      "lat": 12.9116,
+      "lng": 77.6389
+    },
+    {
+      "id": 161,
+      "name": "Chamrajpet Hub",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 202,
+      "name": "Chokkanahalli Hub",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 242,
+      "name": "HSRL Hub",
+      "type": "lm_hub",
+      "lat": 12.9116,
+      "lng": 77.6389
+    },
+    {
+      "id": 99,
+      "name": "89/1 Outer Ring Road Marathalli (Laxmi Ledies pg Ground floor) Hub",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    {
+      "id": 203,
+      "name": "Begur",
+      "type": "franchise_hub",
+      "lat": 12.9716,
+      "lng": 77.5946
+    }
+  ],
+  "warehouse_plans": [
+    {
+      "warehouse_id": 267,
+      "warehouse_name": "Mantri mall store shopper stop",
+      "lat": 12.991963,
+      "lng": 77.571351,
+      "total_orders": 913,
+      "fm_cost": 14000,
+      "tours": [
+        {
+          "hub_ids": [
+            313
+          ],
+          "hub_volumes": {
+            "313": 142
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.8195945194183
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 19.82,
+              "arrival": "19:49",
+              "orders": 142,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            7
+          ],
+          "hub_volumes": {
+            "7": 126
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.02368177417297
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.024,
+              "arrival": "19:01",
+              "orders": 126,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            45
+          ],
+          "hub_volumes": {
+            "45": 111
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.578127149757737
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 19.578,
+              "arrival": "19:34",
+              "orders": 111,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98,
+            289
+          ],
+          "hub_volumes": {
+            "98": 102,
+            "289": 79
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.992212235539636
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 19.206,
+              "arrival": "19:12",
+              "orders": 102,
+              "status": "green"
+            },
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 19.992,
+              "arrival": "19:59",
+              "orders": 79,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            2,
+            323
+          ],
+          "hub_volumes": {
+            "2": 71,
+            "323": 75
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 3,
+            "speed": 40,
+            "total_cost": 3000,
+            "last_arrival": 19.514321974897328
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 18.828,
+              "arrival": "18:49",
+              "orders": 71,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.514,
+              "arrival": "19:30",
+              "orders": 75,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 3000
+        },
+        {
+          "hub_ids": [
+            144,
+            342,
+            291
+          ],
+          "hub_volumes": {
+            "144": 62,
+            "342": 57,
+            "291": 51
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.766147220779285
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 18.609,
+              "arrival": "18:36",
+              "orders": 62,
+              "status": "green"
+            },
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 18.936,
+              "arrival": "18:56",
+              "orders": 57,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 19.766,
+              "arrival": "19:45",
+              "orders": 51,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            329
+          ],
+          "hub_volumes": {
+            "329": 37
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 18.80147240597382
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 18.801,
+              "arrival": "18:48",
+              "orders": 37,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 350,
+      "warehouse_name": "Richmond Road velocity",
+      "lat": 12.966,
+      "lng": 77.602777,
+      "total_orders": 906,
+      "fm_cost": 15000,
+      "tours": [
+        {
+          "hub_ids": [
+            313
+          ],
+          "hub_volumes": {
+            "313": 144
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.45966640138425
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 19.46,
+              "arrival": "19:27",
+              "orders": 144,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            7
+          ],
+          "hub_volumes": {
+            "7": 115
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.22674957898106
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.227,
+              "arrival": "19:13",
+              "orders": 115,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            45
+          ],
+          "hub_volumes": {
+            "45": 112
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.17248852307034
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 19.172,
+              "arrival": "19:10",
+              "orders": 112,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98,
+            323
+          ],
+          "hub_volumes": {
+            "98": 112,
+            "323": 73
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.445758294582017
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 18.675,
+              "arrival": "18:40",
+              "orders": 112,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.446,
+              "arrival": "19:26",
+              "orders": 73,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            289,
+            2
+          ],
+          "hub_volumes": {
+            "289": 72,
+            "2": 70
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.5277374827174
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 18.867,
+              "arrival": "18:52",
+              "orders": 72,
+              "status": "green"
+            },
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 19.528,
+              "arrival": "19:31",
+              "orders": 70,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            342,
+            144,
+            291
+          ],
+          "hub_volumes": {
+            "342": 49,
+            "144": 68,
+            "291": 49
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.904245487166797
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 18.538,
+              "arrival": "18:32",
+              "orders": 49,
+              "status": "green"
+            },
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 18.865,
+              "arrival": "18:51",
+              "orders": 68,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 19.904,
+              "arrival": "19:54",
+              "orders": 49,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            329
+          ],
+          "hub_volumes": {
+            "329": 42
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 18.95704003806461
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 18.957,
+              "arrival": "18:57",
+              "orders": 42,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 103,
+      "warehouse_name": "Supply 6",
+      "lat": 12.9141,
+      "lng": 77.586636,
+      "total_orders": 863,
+      "fm_cost": 13000,
+      "tours": [
+        {
+          "hub_ids": [
+            313
+          ],
+          "hub_volumes": {
+            "313": 132
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.713794784271037
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 19.714,
+              "arrival": "19:42",
+              "orders": 132,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            7
+          ],
+          "hub_volumes": {
+            "7": 124
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.76736766329745
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.767,
+              "arrival": "19:46",
+              "orders": 124,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            45
+          ],
+          "hub_volumes": {
+            "45": 111
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.029325294046696
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 19.029,
+              "arrival": "19:01",
+              "orders": 111,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98,
+            323
+          ],
+          "hub_volumes": {
+            "98": 109,
+            "323": 67
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 20.477486718881757
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 18.617,
+              "arrival": "18:37",
+              "orders": 109,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 20.477,
+              "arrival": "20:28",
+              "orders": 67,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            2,
+            289,
+            291
+          ],
+          "hub_volumes": {
+            "2": 65,
+            "289": 64,
+            "291": 57
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.62894768199232
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 18.59,
+              "arrival": "18:35",
+              "orders": 65,
+              "status": "green"
+            },
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 18.91,
+              "arrival": "18:54",
+              "orders": 64,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 19.629,
+              "arrival": "19:37",
+              "orders": 57,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            342,
+            144,
+            329
+          ],
+          "hub_volumes": {
+            "342": 47,
+            "144": 50,
+            "329": 37
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 3,
+            "speed": 40,
+            "total_cost": 3000,
+            "last_arrival": 19.39887205447405
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 18.726,
+              "arrival": "18:43",
+              "orders": 47,
+              "status": "green"
+            },
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 19.053,
+              "arrival": "19:03",
+              "orders": 50,
+              "status": "green"
+            },
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 19.399,
+              "arrival": "19:23",
+              "orders": 37,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 3000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 248,
+      "warehouse_name": "wellness",
+      "lat": 12.973305,
+      "lng": 77.636062,
+      "total_orders": 862,
+      "fm_cost": 12500,
+      "tours": [
+        {
+          "hub_ids": [
+            313
+          ],
+          "hub_volumes": {
+            "313": 149
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.13762303036137
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 19.138,
+              "arrival": "19:08",
+              "orders": 149,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            7
+          ],
+          "hub_volumes": {
+            "7": 120
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.25939725701347
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.259,
+              "arrival": "19:15",
+              "orders": 120,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98
+          ],
+          "hub_volumes": {
+            "98": 109
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.22851200489975
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 19.229,
+              "arrival": "19:13",
+              "orders": 109,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            289,
+            45
+          ],
+          "hub_volumes": {
+            "289": 72,
+            "45": 101
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.25981420920184
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 18.63,
+              "arrival": "18:37",
+              "orders": 72,
+              "status": "green"
+            },
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 19.26,
+              "arrival": "19:15",
+              "orders": 101,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            144,
+            323
+          ],
+          "hub_volumes": {
+            "144": 70,
+            "323": 69
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 3,
+            "speed": 40,
+            "total_cost": 3000,
+            "last_arrival": 19.63615188711983
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 18.809,
+              "arrival": "18:48",
+              "orders": 70,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.636,
+              "arrival": "19:38",
+              "orders": 69,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 3000
+        },
+        {
+          "hub_ids": [
+            342,
+            2
+          ],
+          "hub_volumes": {
+            "342": 34,
+            "2": 66
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.62829721014711
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 18.92,
+              "arrival": "18:55",
+              "orders": 34,
+              "status": "green"
+            },
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 19.628,
+              "arrival": "19:37",
+              "orders": 66,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            329,
+            291
+          ],
+          "hub_volumes": {
+            "329": 36,
+            "291": 36
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 2,
+            "speed": 40,
+            "total_cost": 2000,
+            "last_arrival": 20.281411155436214
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 19.038,
+              "arrival": "19:02",
+              "orders": 36,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 20.281,
+              "arrival": "20:16",
+              "orders": 36,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 2000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 246,
+      "warehouse_name": "shipway kormangala",
+      "lat": 12.933594,
+      "lng": 77.631397,
+      "total_orders": 859,
+      "fm_cost": 13000,
+      "tours": [
+        {
+          "hub_ids": [
+            7
+          ],
+          "hub_volumes": {
+            "7": 119
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.616294542597473
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.616,
+              "arrival": "19:36",
+              "orders": 119,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98
+          ],
+          "hub_volumes": {
+            "98": 113
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 18.989638917624333
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 18.99,
+              "arrival": "18:59",
+              "orders": 113,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            313
+          ],
+          "hub_volumes": {
+            "313": 113
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.2181447355551
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 19.218,
+              "arrival": "19:13",
+              "orders": 113,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            45,
+            2
+          ],
+          "hub_volumes": {
+            "45": 110,
+            "2": 79
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.15312860009195
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 18.741,
+              "arrival": "18:44",
+              "orders": 110,
+              "status": "green"
+            },
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 19.153,
+              "arrival": "19:09",
+              "orders": 79,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            289,
+            144,
+            323
+          ],
+          "hub_volumes": {
+            "289": 67,
+            "144": 60,
+            "323": 62
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.900799041103916
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 18.61,
+              "arrival": "18:36",
+              "orders": 67,
+              "status": "green"
+            },
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 19.074,
+              "arrival": "19:04",
+              "orders": 60,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.901,
+              "arrival": "19:54",
+              "orders": 62,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            342,
+            329,
+            291
+          ],
+          "hub_volumes": {
+            "342": 51,
+            "329": 25,
+            "291": 60
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 3,
+            "speed": 40,
+            "total_cost": 3000,
+            "last_arrival": 20.48312421054755
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 18.703,
+              "arrival": "18:42",
+              "orders": 51,
+              "status": "green"
+            },
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 19.24,
+              "arrival": "19:14",
+              "orders": 25,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 20.483,
+              "arrival": "20:28",
+              "orders": 60,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 3000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 23,
+      "warehouse_name": "Blue tokai",
+      "lat": 12.982433,
+      "lng": 77.711949,
+      "total_orders": 458,
+      "fm_cost": 9000,
+      "tours": [
+        {
+          "hub_ids": [
+            313,
+            7
+          ],
+          "hub_volumes": {
+            "313": 98,
+            "7": 60
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 20.190140338198592
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 18.783,
+              "arrival": "18:47",
+              "orders": 98,
+              "status": "green"
+            },
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 20.19,
+              "arrival": "20:11",
+              "orders": 60,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            323,
+            289,
+            45,
+            98
+          ],
+          "hub_volumes": {
+            "323": 38,
+            "289": 36,
+            "45": 51,
+            "98": 48
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.833632644799174
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 18.652,
+              "arrival": "18:39",
+              "orders": 38,
+              "status": "green"
+            },
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 19.193,
+              "arrival": "19:11",
+              "orders": 36,
+              "status": "green"
+            },
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 19.502,
+              "arrival": "19:30",
+              "orders": 51,
+              "status": "green"
+            },
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 19.834,
+              "arrival": "19:50",
+              "orders": 48,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            342,
+            144
+          ],
+          "hub_volumes": {
+            "342": 25,
+            "144": 35
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 20.369276234545875
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 19.692,
+              "arrival": "19:41",
+              "orders": 25,
+              "status": "green"
+            },
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 20.369,
+              "arrival": "20:22",
+              "orders": 35,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            2
+          ],
+          "hub_volumes": {
+            "2": 24
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 18.963540149858254
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 18.964,
+              "arrival": "18:57",
+              "orders": 24,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        },
+        {
+          "hub_ids": [
+            291,
+            329
+          ],
+          "hub_volumes": {
+            "291": 23,
+            "329": 20
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 20.394685179420847
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 19.151,
+              "arrival": "19:09",
+              "orders": 23,
+              "status": "green"
+            },
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 20.395,
+              "arrival": "20:23",
+              "orders": 20,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 220,
+      "warehouse_name": "showoff",
+      "lat": 12.905466,
+      "lng": 77.608353,
+      "total_orders": 444,
+      "fm_cost": 9000,
+      "tours": [
+        {
+          "hub_ids": [
+            98,
+            313
+          ],
+          "hub_volumes": {
+            "98": 69,
+            "313": 81
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 20.139548054671963
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 18.821,
+              "arrival": "18:49",
+              "orders": 69,
+              "status": "green"
+            },
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 20.14,
+              "arrival": "20:08",
+              "orders": 81,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            2,
+            45,
+            323,
+            7
+          ],
+          "hub_volumes": {
+            "2": 31,
+            "45": 50,
+            "323": 38,
+            "7": 60
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 20.117718003636266
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 18.544,
+              "arrival": "18:32",
+              "orders": 31,
+              "status": "green"
+            },
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 18.771,
+              "arrival": "18:46",
+              "orders": 50,
+              "status": "green"
+            },
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.367,
+              "arrival": "19:21",
+              "orders": 38,
+              "status": "green"
+            },
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 20.118,
+              "arrival": "20:07",
+              "orders": 60,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            289,
+            342
+          ],
+          "hub_volumes": {
+            "289": 29,
+            "342": 31
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 19.729030013468286
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 19.153,
+              "arrival": "19:09",
+              "orders": 29,
+              "status": "green"
+            },
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 19.729,
+              "arrival": "19:43",
+              "orders": 31,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            144
+          ],
+          "hub_volumes": {
+            "144": 27
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 18.96887938702186
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 18.969,
+              "arrival": "18:58",
+              "orders": 27,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        },
+        {
+          "hub_ids": [
+            291,
+            329
+          ],
+          "hub_volumes": {
+            "291": 17,
+            "329": 11
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 1,
+            "speed": 40,
+            "total_cost": 1000,
+            "last_arrival": 20.219658280437972
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 18.976,
+              "arrival": "18:58",
+              "orders": 17,
+              "status": "green"
+            },
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 20.22,
+              "arrival": "20:13",
+              "orders": 11,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1000
+        }
+      ]
+    },
+    {
+      "warehouse_id": 261,
+      "warehouse_name": "marathalli tulsi theatre RD",
+      "lat": 12.949709,
+      "lng": 77.698432,
+      "total_orders": 425,
+      "fm_cost": 10500,
+      "tours": [
+        {
+          "hub_ids": [
+            313,
+            45,
+            7
+          ],
+          "hub_volumes": {
+            "313": 76,
+            "45": 55,
+            "7": 59
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 4,
+            "speed": 40,
+            "total_cost": 4000,
+            "last_arrival": 19.567713770952267
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 313,
+              "hub_name": "QuickMarathahalli Hub",
+              "arrival_hr": 18.537,
+              "arrival": "18:32",
+              "orders": 76,
+              "status": "green"
+            },
+            {
+              "hub_id": 45,
+              "hub_name": "HSR Layout Hub (560102-1)",
+              "arrival_hr": 18.942,
+              "arrival": "18:56",
+              "orders": 55,
+              "status": "green"
+            },
+            {
+              "hub_id": 7,
+              "hub_name": "Hebbal Hub",
+              "arrival_hr": 19.568,
+              "arrival": "19:34",
+              "orders": 59,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 4000
+        },
+        {
+          "hub_ids": [
+            323,
+            289
+          ],
+          "hub_volumes": {
+            "323": 35,
+            "289": 25
+          },
+          "vehicle": {
+            "type": "Medium",
+            "count": 1,
+            "speed": 15,
+            "total_cost": 1500,
+            "last_arrival": 20.30769556632577
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 323,
+              "hub_name": "Quick Whitefield Hub",
+              "arrival_hr": 19.062,
+              "arrival": "19:03",
+              "orders": 35,
+              "status": "green"
+            },
+            {
+              "hub_id": 289,
+              "hub_name": "Domlur Hub",
+              "arrival_hr": 20.308,
+              "arrival": "20:18",
+              "orders": 25,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 1500
+        },
+        {
+          "hub_ids": [
+            98,
+            144,
+            291
+          ],
+          "hub_volumes": {
+            "98": 55,
+            "144": 34,
+            "291": 25
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 3,
+            "speed": 40,
+            "total_cost": 3000,
+            "last_arrival": 20.474861496041168
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 98,
+              "hub_name": "Vijayanagar Hub",
+              "arrival_hr": 18.945,
+              "arrival": "18:56",
+              "orders": 55,
+              "status": "green"
+            },
+            {
+              "hub_id": 144,
+              "hub_name": "Mathikere Hub (560054-1)",
+              "arrival_hr": 19.435,
+              "arrival": "19:26",
+              "orders": 34,
+              "status": "green"
+            },
+            {
+              "hub_id": 291,
+              "hub_name": "Chandapura Hub",
+              "arrival_hr": 20.475,
+              "arrival": "20:28",
+              "orders": 25,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 3000
+        },
+        {
+          "hub_ids": [
+            2,
+            342,
+            329
+          ],
+          "hub_volumes": {
+            "2": 24,
+            "342": 24,
+            "329": 13
+          },
+          "vehicle": {
+            "type": "Small",
+            "count": 2,
+            "speed": 40,
+            "total_cost": 2000,
+            "last_arrival": 19.733992463006274
+          },
+          "status": "green",
+          "arrivals": [
+            {
+              "hub_id": 2,
+              "hub_name": "BTM Layout Hub",
+              "arrival_hr": 18.859,
+              "arrival": "18:51",
+              "orders": 24,
+              "status": "green"
+            },
+            {
+              "hub_id": 342,
+              "hub_name": "Nykaa now RR Nagar",
+              "arrival_hr": 19.198,
+              "arrival": "19:11",
+              "orders": 24,
+              "status": "green"
+            },
+            {
+              "hub_id": 329,
+              "hub_name": "Nykaa now Nagasandra",
+              "arrival_hr": 19.734,
+              "arrival": "19:44",
+              "orders": 13,
+              "status": "green"
+            }
+          ],
+          "fm_cost": 2000
+        }
+      ]
+    }
+  ],
+  "store_to_warehouse": {
+    "APO-007": 103,
+    "VHN-006": 246,
+    "LEN-006": 261,
+    "VRM-004": 248,
+    "RYB-002": 267,
+    "ZIV-002": 246,
+    "NAU-001": 23,
+    "HNG-006": 103,
+    "JOC-005": 267,
+    "MNS-003": 350,
+    "ZUD-008": 220,
+    "DSL-001": 350,
+    "UNI-002": 248
+  }
+}
