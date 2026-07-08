@@ -10,7 +10,7 @@ Infra is plain **CloudFormation** + Docker + AWS CLI — **no SAM, no CDK**.
 - **`Dockerfile`**: CPU-only torch 2.2.2 / torchvision 0.17.2 (pinned), `numpy<2`;
   build-time check that deps import and the checkpoint loads with 0 key mismatches.
 - **Infra** (`infra/stack.yaml`): VPC Lambda (10 GB / 900 s), EventBridge daily trigger
-  (empty event `{}`), async retries + SQS DLQ, S3 state bucket, IAM.
+  (empty event `{}`), async retries + SQS DLQ, IAM.
 - **Scripts**: `deploy.sh` (build → ECR → update function), `provision-stack.sh`
   (`aws cloudformation deploy`), `infra/schema.sql` (v2 with the idempotency key).
 
@@ -19,8 +19,8 @@ Infra is plain **CloudFormation** + Docker + AWS CLI — **no SAM, no CDK**.
 - Docker (with buildx) running.
 - AWS CLI v2 authenticated (`AWS_PROFILE` or keys) with ECR/Lambda/CFN/IAM permissions.
 - `lambda_scorer/model/best.pt` present (baked into the image).
-- Reachability: the Lambda's VPC subnets need egress to the Metabase host, the POD
-  image host, and the RDS Postgres endpoint (NAT or VPC endpoints).
+- Reachability: the Lambda's VPC subnets need egress to the RDS Postgres endpoint
+  (source query + results) and the POD image host (NAT or VPC endpoints).
 
 ## One-time setup
 
@@ -55,9 +55,7 @@ Infra is plain **CloudFormation** + Docker + AWS CLI — **no SAM, no CDK**.
    export STACK_NAME=pod-scoring-prod
    export VPC_ID=vpc-xxx
    export SUBNET_IDS=subnet-a,subnet-b
-   export METABASE_URL=https://metabase.blitznow.in
-   export METABASE_API_KEY=***
-   export METABASE_CARD_ID=10989          # scoring card
+   export SOURCE_QUERY="SELECT awb, trip_id, pod FROM pod_manual_verification WHERE created_date = CURRENT_DATE"
    export PG_HOST=<db>.rds.amazonaws.com
    export PG_PASSWORD=***
    export SCORER_IMAGE_URI="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"

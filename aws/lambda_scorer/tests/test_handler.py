@@ -115,8 +115,9 @@ def wire(monkeypatch):
         c.upserted.extend(rows)
         return len(rows)
     monkeypatch.setattr(H, "upsert_results", _capture_upsert)
-    monkeypatch.setattr(H, "METABASE_URL", "http://mb", raising=False)
-    monkeypatch.setattr(H, "METABASE_API_KEY", "k", raising=False)
+    monkeypatch.setattr(H, "SOURCE_QUERY", "SELECT 1", raising=False)
+    monkeypatch.setattr(H, "PG_HOST", "db", raising=False)
+    monkeypatch.setattr(H, "PG_PASSWORD", "pw", raising=False)
     return conn
 
 
@@ -198,7 +199,7 @@ def test_load_done_keys():
 
 def test_handler_covers_whole_dataset_one_invocation(wire, monkeypatch):
     N = 2500
-    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "fetch_pod_data", lambda: _mb_df(N))
     monkeypatch.setattr(H, "build_session", lambda: FakeSession())
     monkeypatch.setattr(H, "WINDOW_SIZE", 800, raising=False)
 
@@ -214,7 +215,7 @@ def test_handler_covers_whole_dataset_one_invocation(wire, monkeypatch):
 def test_handler_records_failures_as_outcomes(wire, monkeypatch):
     N = 100
     fail = {f"http://img/{i}.png" for i in (5, 10, 42)}
-    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "fetch_pod_data", lambda: _mb_df(N))
     monkeypatch.setattr(H, "build_session", lambda: FakeSession(fail_urls=fail))
     resp = H.handler({}, FakeContext(600_000))
     body = json.loads(resp["body"])
@@ -226,7 +227,7 @@ def test_handler_records_failures_as_outcomes(wire, monkeypatch):
 
 def test_handler_resume_skips_done(wire, monkeypatch):
     N = 50
-    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "fetch_pod_data", lambda: _mb_df(N))
     monkeypatch.setattr(H, "build_session", lambda: FakeSession())
     done = {(f"AWB{i}", f"http://img/{i}.png") for i in range(20)}
     monkeypatch.setattr(H, "load_done_keys", lambda c, d: done)
@@ -239,7 +240,7 @@ def test_handler_resume_skips_done(wire, monkeypatch):
 
 def test_handler_continuation_near_wall(wire, monkeypatch):
     N = 3000
-    monkeypatch.setattr(H, "fetch_pod_data", lambda s: _mb_df(N))
+    monkeypatch.setattr(H, "fetch_pod_data", lambda: _mb_df(N))
     monkeypatch.setattr(H, "build_session", lambda: FakeSession())
     monkeypatch.setattr(H, "WINDOW_SIZE", 500, raising=False)
     monkeypatch.setattr(H, "CONTINUATION_SAFETY_MS", 90_000, raising=False)

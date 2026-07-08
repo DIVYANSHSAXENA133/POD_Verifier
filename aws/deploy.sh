@@ -3,7 +3,7 @@
 # NO SAM — plain Docker + AWS CLI. Infra is CloudFormation (aws/infra/stack.yaml)
 # applied by aws/provision-stack.sh.
 #
-# Handler: single-invocation, resilient scorer — fetch Metabase, expand links,
+# Handler: single-invocation, resilient scorer — query Postgres for POD rows, expand links,
 # concurrently download images to memory, ImageNet-normalized EfficientNet scoring,
 # idempotent upsert to Postgres, resume + bounded self-continuation. Scheduler
 # sends an empty event {} once per day.

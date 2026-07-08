@@ -1,9 +1,8 @@
 -- POD Scoring Pipeline — PostgreSQL Schema
 -- Run once to create the table. Idempotent (IF NOT EXISTS).
 --
--- v2 (single-invocation redesign): adds status/failure_reason so EVERY input row
--- gets an outcome, and a UNIQUE key so the pipeline can upsert (idempotent retries
--- + resume). See aws/SINGLE_INVOCATION_DESIGN.md §6.
+-- Adds status/failure_reason so EVERY input row gets an outcome, and a UNIQUE key
+-- so the pipeline can upsert (idempotent retries + resume).
 
 CREATE TABLE IF NOT EXISTS pod_scores (
     id                   SERIAL PRIMARY KEY,

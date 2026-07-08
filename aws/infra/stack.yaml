@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  POD pipeline — VPC Lambda (container image), EventBridge Scheduler daily trigger.
-  Self-invoking handler: Metabase fetch, in-memory batch download, EfficientNet scoring,
-  Postgres write per batch, then re-invokes for next batch. No SAM. Deploy with
-  aws/provision-stack.sh.
+  POD pipeline — VPC Lambda (container image) triggered once daily by EventBridge
+  Scheduler. Single invocation: read POD rows from Postgres, download images to
+  memory, score with EfficientNet, upsert to Postgres; resume + bounded
+  self-continuation. No SAM. Deploy with aws/provision-stack.sh.
 
 Parameters:
   Stage:
@@ -11,22 +11,12 @@ Parameters:
     Default: prod
     AllowedValues: [dev, staging, prod]
 
-  MetabaseUrl:
+  SourceQuery:
     Type: String
-    Description: Metabase base URL
-
-  MetabaseApiKey:
-    Type: String
-    NoEcho: true
-    Description: Metabase API key
-
-  MetabaseCardId:
-    Type: String
-    Default: "10989"
-
-  FetchBatchSize:
-    Type: String
-    Default: "500"
+    Description: >
+      SQL run against Postgres to read the day's POD rows. Must return an AWB
+      column, a trip-id column, and a POD-links column (POD / pod / pod_link;
+      comma-separated links are expanded).
 
   FlagThreshold:
     Type: String
@@ -54,7 +44,7 @@ Parameters:
 
   PgHost:
     Type: String
-    Description: PostgreSQL endpoint
+    Description: PostgreSQL endpoint (source query + results both run here)
 
   PgPort:
     Type: String
@@ -84,20 +74,9 @@ Parameters:
 
   TmpEphemeralMB:
     Type: Number
-    Default: 5120
+    Default: 512
 
 Resources:
-
-  PipelineStateBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub pod-pipeline-state-${Stage}-${AWS::AccountId}
-      LifecycleConfiguration:
-        Rules:
-          - Id: CleanupOldRuns
-            Status: Enabled
-            ExpirationInDays: 7
-            Prefix: pod-pipeline-runs/
 
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -128,7 +107,7 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow           # bounded self-continuation (Layer 2 safety valve)
+              - Effect: Allow           # bounded self-continuation
                 Action: lambda:InvokeFunction
                 Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:pod-pipeline-${Stage}
               - Effect: Allow           # coverage metrics
@@ -148,7 +127,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         ImageUri: !Ref ScorerImageUri
-      MemorySize: 10240          # ~6 vCPU — CPU is bought with memory (design §5)
+      MemorySize: 10240          # ~6 vCPU — CPU is bought with memory
       Timeout: 900
       ReservedConcurrentExecutions: 3   # daily run + retry/continuation headroom
       DeadLetterConfig:
@@ -163,9 +142,7 @@ Resources:
         SubnetIds: !Ref SubnetIds
       Environment:
         Variables:
-          METABASE_URL: !Ref MetabaseUrl
-          METABASE_API_KEY: !Ref MetabaseApiKey
-          METABASE_CARD_ID: !Ref MetabaseCardId
+          SOURCE_QUERY: !Ref SourceQuery
           FLAG_THRESHOLD: !Ref FlagThreshold
           MAX_DOWNLOAD_WORKERS: !Ref MaxDownloadWorkers
           WINDOW_SIZE: !Ref WindowSize
@@ -246,8 +223,6 @@ Outputs:
     Value: !GetAtt PodPipelineFunction.Arn
   PodPipelineFunctionName:
     Value: !Ref PodPipelineFunction
-  StateBucketName:
-    Value: !Ref PipelineStateBucket
   ScheduleName:
     Value: !Ref DailySchedule
   ScheduleArn:

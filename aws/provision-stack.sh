@@ -9,14 +9,13 @@
 #   export STAGE=prod
 #   export VPC_ID=vpc-xxx
 #   export SUBNET_IDS=subnet-a,subnet-b
-#   export METABASE_URL=https://metabase.example
-#   export METABASE_API_KEY=secret
+#   export SOURCE_QUERY="SELECT awb, trip_id, pod FROM pod_manual_verification WHERE created_date = CURRENT_DATE"
 #   export PG_HOST=db.xxx.rds.amazonaws.com
 #   export PG_PASSWORD=secret
 #   export SCORER_IMAGE_URI=123456789012.dkr.ecr.ap-south-1.amazonaws.com/pod-pipeline:latest
 #
-# Optional: METABASE_CARD_ID FETCH_BATCH_SIZE FLAG_THRESHOLD INFERENCE_BATCH_SIZE
-#           PG_PORT PG_DATABASE PG_USER TMP_EPHEMERAL_MB
+# Optional: FLAG_THRESHOLD INFERENCE_BATCH_SIZE MAX_DOWNLOAD_WORKERS WINDOW_SIZE
+#           IMAGENET_NORMALIZE PG_PORT PG_DATABASE PG_USER TMP_EPHEMERAL_MB
 #
 set -euo pipefail
 
@@ -28,10 +27,7 @@ STACK_NAME="${STACK_NAME:-pod-scoring-prod}"
 STAGE="${STAGE:-prod}"
 VPC_ID="${VPC_ID:-}"
 SUBNET_IDS="${SUBNET_IDS:-}"
-METABASE_URL="${METABASE_URL:-}"
-METABASE_API_KEY="${METABASE_API_KEY:-}"
-METABASE_CARD_ID="${METABASE_CARD_ID:-10989}"
-FETCH_BATCH_SIZE="${FETCH_BATCH_SIZE:-500}"
+SOURCE_QUERY="${SOURCE_QUERY:-}"
 FLAG_THRESHOLD="${FLAG_THRESHOLD:-0.7}"
 INFERENCE_BATCH_SIZE="${INFERENCE_BATCH_SIZE:-64}"
 MAX_DOWNLOAD_WORKERS="${MAX_DOWNLOAD_WORKERS:-64}"
@@ -49,8 +45,8 @@ if [[ -z "$VPC_ID" || -z "$SUBNET_IDS" ]]; then
   echo "Set VPC_ID and SUBNET_IDS (comma-separated private subnets)." >&2
   exit 1
 fi
-if [[ -z "$METABASE_URL" || -z "$METABASE_API_KEY" ]]; then
-  echo "Set METABASE_URL and METABASE_API_KEY." >&2
+if [[ -z "$SOURCE_QUERY" ]]; then
+  echo "Set SOURCE_QUERY (SQL returning awb, trip_id, and POD links)." >&2
   exit 1
 fi
 if [[ -z "$PG_HOST" || -z "$PG_PASSWORD" ]]; then
@@ -64,10 +60,7 @@ fi
 
 OVERRIDES=(
   "Stage=${STAGE}"
-  "MetabaseUrl=${METABASE_URL}"
-  "MetabaseApiKey=${METABASE_API_KEY}"
-  "MetabaseCardId=${METABASE_CARD_ID}"
-  "FetchBatchSize=${FETCH_BATCH_SIZE}"
+  "SourceQuery=${SOURCE_QUERY}"
   "FlagThreshold=${FLAG_THRESHOLD}"
   "InferenceBatchSize=${INFERENCE_BATCH_SIZE}"
   "MaxDownloadWorkers=${MAX_DOWNLOAD_WORKERS}"

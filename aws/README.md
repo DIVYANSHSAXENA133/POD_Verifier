@@ -2,9 +2,9 @@
 
 Single container Lambda that scores Proof-of-Delivery photos for quality and flags
 bad PODs for the operations team. **Single invocation per day** covers the whole
-dataset: Metabase ingest → expand links (bound to AWB/trip) → concurrent in-memory
-image download → ImageNet-normalized EfficientNet inference → idempotent write to
-PostgreSQL. Triggered once daily by EventBridge Scheduler.
+dataset: read POD rows from Postgres → expand links (bound to AWB/trip) → concurrent
+in-memory image download → ImageNet-normalized EfficientNet inference → idempotent
+write to PostgreSQL. Triggered once daily by EventBridge Scheduler.
 
 **No SAM.** Infra is plain **CloudFormation** ([`infra/stack.yaml`](infra/stack.yaml))
 applied with [`provision-stack.sh`](provision-stack.sh); image delivery is
@@ -26,28 +26,28 @@ entire day in bounded-memory windows and is safe against the 15-minute wall:
   never silently dropped and never penalised.
 - **Clock-aware continuation** — near the wall it flushes and queues exactly one
   checkpointed continuation (bounded by `MAX_CONTINUATIONS`); async retries + SQS DLQ
-  back it up. See [`SINGLE_INVOCATION_DESIGN.md`](SINGLE_INVOCATION_DESIGN.md) §6.
+  back it up.
 
 ## Configuration
 
-Runtime env (set by CloudFormation, not baked into code): **Metabase**
-(`METABASE_URL`, `METABASE_API_KEY`, `METABASE_CARD_ID`), **pipeline tuning**
+Runtime env (set by CloudFormation, not baked into code): **source**
+(`SOURCE_QUERY` — the SQL that returns the day's POD rows), **pipeline tuning**
 (`MAX_DOWNLOAD_WORKERS`, `WINDOW_SIZE`, `INFERENCE_BATCH_SIZE`), **scoring**
 (`FLAG_THRESHOLD`, `IMAGENET_NORMALIZE`), **resilience** (`CONTINUATION_SAFETY_MS`,
 `MAX_CONTINUATIONS`), and **Postgres** (`PG_*`). See [`config.env.example`](config.env.example);
-use Secrets Manager / CI secrets for real passwords and API keys.
+use Secrets Manager / CI secrets for real passwords.
 
 > **Do not disable `IMAGENET_NORMALIZE`.** The model was trained with ImageNet
-> normalization; scoring without it collapses recall (see [`PRODUCT_SIGNOFF.md`](PRODUCT_SIGNOFF.md)).
+> normalization; scoring without it collapses recall.
 
 ## Layout
 
 - `lambda_scorer/` — Docker image: `Dockerfile`, `handler.py`, `model/best.pt`, `src/`, `tests/`.
-- `infra/` — `stack.yaml` (CloudFormation), `schema.sql` (v2, with the idempotency key), `ephemeral_peak_mb.py`.
+- `infra/` — `stack.yaml` (CloudFormation) and `schema.sql` (with the idempotency key).
 - `eval/` — `evaluate_model.py` + `run_gold_eval.sh`: measure the model against a human gold set.
 - `deploy.sh` — build CPU image, push to ECR, roll the Lambda (`DRY_RUN`/`SKIP_LAMBDA_UPDATE` supported).
 - `provision-stack.sh` — `aws cloudformation deploy` (VPC, Lambda, Scheduler, DLQ, IAM, env).
-- `DEPLOYMENT.md` — step-by-step deploy. `PRODUCT_SIGNOFF.md` / `ENGINEERING_QA_REPORT.md` — QA + ship decision.
+- `DEPLOYMENT.md` — step-by-step deploy runbook.
 
 ## Model weights (`lambda_scorer/model/best.pt`)
 
