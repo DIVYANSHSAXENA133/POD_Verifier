@@ -238,19 +238,19 @@ def download_and_prepare(session: requests.Session, row: dict) -> dict:
         if img is None:
             return {**base, "status": "download_failed", "failure_reason": "decode_failed"}
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        return {**base, "status": "scored", "chw": preprocess_image(img_rgb)}
+        return {**base, "chw": preprocess_image(img_rgb)}   # prepared tensor = success
     except Exception as e:  # noqa: BLE001
         return {**base, "status": "download_failed", "failure_reason": type(e).__name__}
 
 
 def download_window(session: requests.Session, rows: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Concurrently download a window. Returns (successes, failures)."""
-    successes, failures = [], []
+    """Concurrently download a window. Returns (prepared, failures)."""
+    prepared, failures = [], []
     workers = min(MAX_DOWNLOAD_WORKERS, max(1, len(rows)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for out in pool.map(lambda r: download_and_prepare(session, r), rows):
-            (successes if out["status"] == "scored" else failures).append(out)
-    return successes, failures
+            (prepared if "chw" in out else failures).append(out)
+    return prepared, failures
 
 
 def score_prepared(model, device, successes: list[dict]) -> list[dict]:
@@ -368,16 +368,20 @@ def handler(event: dict, context: Any) -> dict:
 
     if hit_time_limit and continuation < MAX_CONTINUATIONS:
         invoke_continuation(run_id, run_date, continuation + 1)
+        status = "continuing"
     else:
+        # Done, or out of continuations: emit coverage so an alarm can fire if
+        # scored + failed < total (i.e. we gave up with work remaining).
         emit_coverage(total, len(done) + scored_total, failed_total)
+        status = "incomplete" if hit_time_limit else "complete"
 
     summary = {
         "run_id": run_id, "run_date": run_date, "total_images": total,
         "scored_this_invocation": scored_total, "failed_this_invocation": failed_total,
         "already_done_at_start": len(done),
-        "status": "continuing" if hit_time_limit else "complete",
+        "status": status,
         "continuation": continuation,
         "invocation_duration_s": round(time.time() - t_start, 3),
     }
-    logger.info("Pipeline %s: %s", summary["status"].upper(), json.dumps(summary))
+    logger.info("Pipeline %s: %s", status.upper(), json.dumps(summary))
     return {"statusCode": 200, "body": json.dumps(summary)}

@@ -157,7 +157,7 @@ def test_preprocess_shape_and_normalization():
 def test_download_and_prepare_outcomes():
     s = FakeSession(fail_urls={"http://img/x.png"}, http_status={"http://img/y.png": 404})
     ok = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/ok.png"})
-    assert ok["status"] == "scored" and "chw" in ok
+    assert "chw" in ok and "status" not in ok   # success = prepared tensor, no status yet
     exc = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/x.png"})
     assert exc["status"] == "download_failed" and exc["failure_reason"] == "ConnectionError"
     http = H.download_and_prepare(s, {"awb": "a", "trip_id": "t", "pod_link": "http://img/y.png"})
