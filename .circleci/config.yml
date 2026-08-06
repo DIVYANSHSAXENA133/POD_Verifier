@@ -159,14 +159,14 @@ workflows:
           requires: [build-and-test]
           filters:
             branches:
-              only: [main]
+              only: [main, circleci-project-setup]
 
       - deploy:
           context: [pod-verifier-aws]
           requires: [hold-deploy]
           filters:
             branches:
-              only: [main]
+              only: [main, circleci-project-setup]
 
       # Run only when infra/stack.yaml changed; approve after the image is pushed
       # so SCORER_IMAGE_URI points at a tag that exists in ECR.
