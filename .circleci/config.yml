@@ -22,7 +22,7 @@ orbs:
 parameters:
   aws_region:
     type: string
-    default: ap-south-1
+    default: us-east-2
   ecr_repository:
     type: string
     default: pod-pipeline
