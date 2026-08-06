@@ -1,31 +1,185 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/reference/configuration-reference/
+# POD Verifier — CI/CD for the container Lambda (aws/lambda_scorer).
+#
+# Mirrors aws/DEPLOYMENT.md: plain Docker + AWS CLI + CloudFormation (no SAM/CDK).
+#   build-and-test  → docker buildx (DRY_RUN=true ./deploy.sh) + pytest inside the image
+#   deploy          → ./deploy.sh (ECR login → push → lambda update-function-code)
+#   provision-stack → ./provision-stack.sh (aws cloudformation deploy), manual-gated
+#
+# Required CircleCI context "pod-verifier-aws":
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   (ECR/Lambda/CFN/IAM permissions)
+# Required only for the provision-stack job (same or a separate context):
+#   VPC_ID, SUBNET_IDS, SOURCE_QUERY, PG_HOST, PG_PASSWORD
+#   optional: PG_PORT PG_DATABASE PG_USER FLAG_THRESHOLD INFERENCE_BATCH_SIZE
+#             MAX_DOWNLOAD_WORKERS WINDOW_SIZE IMAGENET_NORMALIZE TMP_EPHEMERAL_MB
+#
+# Prefer OIDC over long-lived keys? Replace the aws-cli/setup step with
+# aws-cli/setup: { role_arn: $AWS_ROLE_ARN, region: $AWS_REGION } and drop the keys.
 version: 2.1
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
-jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Docker Hub or use one of our convenience images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/guides/execution-managed/executor-intro/ & https://circleci.com/docs/reference/configuration-reference/#executor-job
-    docker:
-      # Specify the version you desire here
-      # See: https://circleci.com/developer/images/image/cimg/base
-      - image: cimg/base:current
+orbs:
+  aws-cli: circleci/aws-cli@5.4
 
-    # Add steps to the job
-    # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#steps-overview & https://circleci.com/docs/reference/configuration-reference/#steps
+parameters:
+  aws_region:
+    type: string
+    default: ap-south-1
+  ecr_repository:
+    type: string
+    default: pod-pipeline
+  stage:
+    type: string
+    default: prod
+  stack_name:
+    type: string
+    default: pod-scoring-prod
+
+executors:
+  # Machine executor: the image build needs a real Docker daemon with buildx,
+  # and torch/torchvision CPU wheels make this a heavy build.
+  docker-builder:
+    machine:
+      image: ubuntu-2404:current
+      # docker_layer_caching: true   # paid feature — big win on rebuild time
+    resource_class: medium
+    working_directory: ~/project
+
+commands:
+  set-build-env:
+    description: Common build/deploy environment (image tag is the commit SHA).
     steps:
-      # Checkout the code as the first step.
-      - checkout
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Export build environment
+          command: |
+            {
+              echo 'export AWS_REGION="<< pipeline.parameters.aws_region >>"'
+              echo 'export AWS_DEFAULT_REGION="<< pipeline.parameters.aws_region >>"'
+              echo 'export ECR_REPOSITORY="<< pipeline.parameters.ecr_repository >>"'
+              echo 'export STAGE="<< pipeline.parameters.stage >>"'
+              echo "export IMAGE_TAG=\"${CIRCLE_SHA1:0:12}\""
+              echo "export LAMBDA_FUNCTION=\"<< pipeline.parameters.ecr_repository >>-<< pipeline.parameters.stage >>\""
+            } >> "$BASH_ENV"
+      - run:
+          name: Verify the trained checkpoint is present
+          command: |
+            test -f aws/lambda_scorer/model/best.pt \
+              || { echo "aws/lambda_scorer/model/best.pt missing — it is baked into the image"; exit 1; }
+            ls -lh aws/lambda_scorer/model/best.pt
 
-# Orchestrate jobs using workflows
-# See: https://circleci.com/docs/guides/orchestrate/workflows/ & https://circleci.com/docs/reference/configuration-reference/#workflows
+jobs:
+  # Builds the exact image that ships, then runs the handler test suite inside it
+  # so pytest sees the pinned torch/timm/cv2 stack instead of a CI-only install.
+  build-and-test:
+    executor: docker-builder
+    steps:
+      - checkout
+      - set-build-env
+      - run:
+          name: Build image (DRY_RUN — no AWS calls)
+          no_output_timeout: 30m
+          command: |
+            cd aws
+            chmod +x deploy.sh provision-stack.sh
+            DRY_RUN=true ./deploy.sh
+      - run:
+          name: pytest inside the built image
+          command: |
+            docker run --rm \
+              -v "$PWD/aws/lambda_scorer:/work" -w /work \
+              --entrypoint /bin/bash \
+              "pod-pipeline-local:${IMAGE_TAG}" -c \
+              "pip install --no-cache-dir -r requirements-dev.txt >/dev/null && python -m pytest -q --junitxml=/work/test-results/junit.xml"
+      - store_test_results:
+          path: aws/lambda_scorer/test-results
+      - store_artifacts:
+          path: aws/lambda_scorer/test-results
+
+  # Rebuild (cheap-ish: same layers when DLC is on), push to ECR, roll the Lambda.
+  deploy:
+    executor: docker-builder
+    steps:
+      - checkout
+      - set-build-env
+      - aws-cli/setup:
+          region: << pipeline.parameters.aws_region >>
+      - run:
+          name: Build, push to ECR, update function code
+          no_output_timeout: 30m
+          command: |
+            cd aws
+            chmod +x deploy.sh
+            ./deploy.sh
+      - run:
+          name: Also publish the :latest tag
+          command: |
+            ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+            REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            docker tag "pod-pipeline-local:${IMAGE_TAG}" "${REGISTRY}/${ECR_REPOSITORY}:latest"
+            docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
+      - run:
+          name: Wait for the function update and verify the image URI
+          command: |
+            aws lambda wait function-updated \
+              --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}"
+            LIVE="$(aws lambda get-function-configuration \
+              --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}" \
+              --query 'ImageUri' --output text)"
+            echo "live image: ${LIVE}"
+            case "${LIVE}" in
+              *":${IMAGE_TAG}") echo "OK — function is on ${IMAGE_TAG}" ;;
+              *) echo "MISMATCH — expected tag ${IMAGE_TAG}"; exit 1 ;;
+            esac
+      # Not invoking the function here on purpose: the empty {} payload is a full
+      # day's scoring run. Smoke-test manually per aws/DEPLOYMENT.md when needed.
+
+  # Infra changes only (stack.yaml / operating knobs). Manual-approval gated.
+  provision-stack:
+    executor: docker-builder
+    steps:
+      - checkout
+      - set-build-env
+      - aws-cli/setup:
+          region: << pipeline.parameters.aws_region >>
+      - run:
+          name: aws cloudformation deploy
+          command: |
+            cd aws
+            chmod +x provision-stack.sh
+            ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+            export STACK_NAME="<< pipeline.parameters.stack_name >>"
+            export SCORER_IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+            ./provision-stack.sh
+
 workflows:
-  say-hello-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  build-test-deploy:
     jobs:
-      - say-hello
+      - build-and-test
+
+      - hold-deploy:
+          type: approval
+          requires: [build-and-test]
+          filters:
+            branches:
+              only: [main]
+
+      - deploy:
+          context: [pod-verifier-aws]
+          requires: [hold-deploy]
+          filters:
+            branches:
+              only: [main]
+
+      # Run only when infra/stack.yaml changed; approve after the image is pushed
+      # so SCORER_IMAGE_URI points at a tag that exists in ECR.
+      - hold-provision:
+          type: approval
+          requires: [deploy]
+          filters:
+            branches:
+              only: [main]
+
+      - provision-stack:
+          context: [pod-verifier-aws]
+          requires: [hold-provision]
+          filters:
+            branches:
+              only: [main]
