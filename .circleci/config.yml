@@ -28,10 +28,10 @@ parameters:
     default: pod-pipeline
   stage:
     type: string
-    default: prod
+    default: stg
   stack_name:
     type: string
-    default: pod-scoring-prod
+    default: pod-scoring-stg
 
 executors:
   # Machine executor: the image build needs a real Docker daemon with buildx,

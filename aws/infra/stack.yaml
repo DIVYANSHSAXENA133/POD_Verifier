@@ -8,8 +8,8 @@ Description: >
 Parameters:
   Stage:
     Type: String
-    Default: prod
-    AllowedValues: [dev, staging, prod]
+    Default: stg
+    AllowedValues: [dev, stg, prod]
 
   SourceQuery:
     Type: String

@@ -24,7 +24,7 @@ TEMPLATE="${AWS_DIR}/infra/stack.yaml"
 
 AWS_REGION="${AWS_REGION:-us-east-2}"
 STACK_NAME="${STACK_NAME:-pod-scoring-prod}"
-STAGE="${STAGE:-prod}"
+STAGE="${STAGE:-stg}"
 VPC_ID="${VPC_ID:-}"
 SUBNET_IDS="${SUBNET_IDS:-}"
 SOURCE_QUERY="${SOURCE_QUERY:-}"

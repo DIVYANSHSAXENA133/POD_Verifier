@@ -29,7 +29,7 @@ if [[ ! -f "${CTX}/model/best.pt" ]]; then
 fi
 
 AWS_REGION="${AWS_REGION:-us-east-2}"
-STAGE="${STAGE:-prod}"
+STAGE="${STAGE:-stg}"
 ECR_REPOSITORY="${ECR_REPOSITORY:-pod-pipeline}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 LOCAL_NAME="${LOCAL_NAME:-pod-pipeline-local}"
