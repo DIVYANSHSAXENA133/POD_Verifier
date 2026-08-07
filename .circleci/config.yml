@@ -197,11 +197,11 @@ workflows:
           requires: [deploy]
           filters:
             branches:
-              only: [main]
+              only: [main, circleci-project-setup]
 
       - provision-stack:
           context: [pod-verifier-aws]
           requires: [hold-provision]
           filters:
             branches:
-              only: [main]
+              only: [main, circleci-project-setup]
