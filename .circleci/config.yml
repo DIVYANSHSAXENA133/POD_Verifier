@@ -56,7 +56,9 @@ commands:
               echo 'export ECR_REPOSITORY="<< pipeline.parameters.ecr_repository >>"'
               echo 'export STAGE="<< pipeline.parameters.stage >>"'
               echo "export IMAGE_TAG=\"${CIRCLE_SHA1:0:12}\""
-              echo "export LAMBDA_FUNCTION=\"<< pipeline.parameters.ecr_repository >>-<< pipeline.parameters.stage >>\""
+              # Must match stack.yaml: FunctionName: !Sub pod-pipeline-${Stage}
+              # (independent of the ECR repo name — do not derive it from that).
+              echo "export LAMBDA_FUNCTION=\"pod-pipeline-<< pipeline.parameters.stage >>\""
             } >> "$BASH_ENV"
       - run:
           name: Verify the trained checkpoint is present
@@ -101,6 +103,22 @@ jobs:
       - set-build-env
       - aws-cli/setup:
           region: << pipeline.parameters.aws_region >>
+      # Bootstrap: on a brand-new stage the Lambda does not exist yet (it is created
+      # by provision-stack, which needs an image already in ECR). Push the image and
+      # skip the function update in that case instead of failing with
+      # ResourceNotFoundException — the next deploy rolls the function normally.
+      - run:
+          name: Does the Lambda exist yet?
+          command: |
+            if aws lambda get-function-configuration \
+                 --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+              echo "export SKIP_LAMBDA_UPDATE=false" >> "$BASH_ENV"
+              echo "${LAMBDA_FUNCTION} exists — will update its code."
+            else
+              echo "export SKIP_LAMBDA_UPDATE=true" >> "$BASH_ENV"
+              echo "${LAMBDA_FUNCTION} not found — image-only push (bootstrap)."
+              echo "Approve the provision-stack job to create it from aws/infra/stack.yaml."
+            fi
       - run:
           name: Build, push to ECR, update function code
           no_output_timeout: 30m
@@ -118,6 +136,10 @@ jobs:
       - run:
           name: Wait for the function update and verify the image URI
           command: |
+            if [ "${SKIP_LAMBDA_UPDATE}" = "true" ]; then
+              echo "Bootstrap run — no function to verify. Image is in ECR at tag ${IMAGE_TAG}."
+              exit 0
+            fi
             aws lambda wait function-updated \
               --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}"
             LIVE="$(aws lambda get-function-configuration \
