@@ -142,9 +142,12 @@ jobs:
             fi
             aws lambda wait function-updated \
               --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}"
-            LIVE="$(aws lambda get-function-configuration \
+            # The image URI lives on get-function (Code.ImageUri), NOT on
+            # get-function-configuration — that API has no ImageUri field and
+            # returns None, which would fail the comparison below every time.
+            LIVE="$(aws lambda get-function \
               --function-name "${LAMBDA_FUNCTION}" --region "${AWS_REGION}" \
-              --query 'ImageUri' --output text)"
+              --query 'Code.ImageUri' --output text)"
             echo "live image: ${LIVE}"
             case "${LIVE}" in
               *":${IMAGE_TAG}") echo "OK — function is on ${IMAGE_TAG}" ;;
