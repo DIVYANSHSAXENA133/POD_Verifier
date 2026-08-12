@@ -22,9 +22,9 @@ set -euo pipefail
 AWS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="${AWS_DIR}/infra/stack.yaml"
 
-AWS_REGION="${AWS_REGION:-ap-south-1}"
-STACK_NAME="${STACK_NAME:-pod-scoring-prod}"
-STAGE="${STAGE:-prod}"
+AWS_REGION="${AWS_REGION:-us-east-2}"
+STACK_NAME="${STACK_NAME:-pod-scoring-stg}"
+STAGE="${STAGE:-stg}"
 VPC_ID="${VPC_ID:-}"
 SUBNET_IDS="${SUBNET_IDS:-}"
 SOURCE_QUERY="${SOURCE_QUERY:-}"
