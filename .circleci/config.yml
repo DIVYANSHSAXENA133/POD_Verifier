@@ -14,6 +14,12 @@
 #
 # Prefer OIDC over long-lived keys? Replace the aws-cli/setup step with
 # aws-cli/setup: { role_arn: $AWS_ROLE_ARN, region: $AWS_REGION } and drop the keys.
+#
+# Need to push an infra/env-var-only change (e.g. a new SOURCE_QUERY) without
+# rebuilding or redeploying the image? Trigger a pipeline from the CircleCI UI
+# ("Trigger Pipeline") with parameter provision_only=true. That runs only
+# hold-provision → provision-stack, pointed at the ":latest" image already in
+# ECR — no build-and-test, no deploy.
 version: 2.1
 
 orbs:
@@ -32,6 +38,9 @@ parameters:
   stack_name:
     type: string
     default: pod-scoring-stg
+  provision_only:
+    type: boolean
+    default: false
 
 executors:
   # Machine executor: the image build needs a real Docker daemon with buildx,
@@ -55,7 +64,15 @@ commands:
               echo 'export AWS_DEFAULT_REGION="<< pipeline.parameters.aws_region >>"'
               echo 'export ECR_REPOSITORY="<< pipeline.parameters.ecr_repository >>"'
               echo 'export STAGE="<< pipeline.parameters.stage >>"'
-              echo "export IMAGE_TAG=\"${CIRCLE_SHA1:0:12}\""
+              # provision_only runs against whatever is already published as
+              # :latest (set by every deploy) instead of this commit's tag,
+              # since provision-only pipelines skip build-and-test/deploy and
+              # this commit's own image tag may never have been pushed.
+              if << pipeline.parameters.provision_only >>; then
+                echo 'export IMAGE_TAG="latest"'
+              else
+                echo "export IMAGE_TAG=\"${CIRCLE_SHA1:0:12}\""
+              fi
               # Must match stack.yaml: FunctionName: !Sub pod-pipeline-${Stage}
               # (independent of the ECR repo name — do not derive it from that).
               echo "export LAMBDA_FUNCTION=\"pod-pipeline-<< pipeline.parameters.stage >>\""
@@ -176,6 +193,8 @@ jobs:
 
 workflows:
   build-test-deploy:
+    when:
+      equal: [false, << pipeline.parameters.provision_only >>]
     jobs:
       - build-and-test
 
@@ -208,3 +227,22 @@ workflows:
           filters:
             branches:
               only: [main, circleci-project-setup]
+
+  # Direct path: infra/env-var-only changes (e.g. a new SOURCE_QUERY) without
+  # touching the image. Trigger via CircleCI UI with provision_only=true.
+  provision-only:
+    when:
+      equal: [true, << pipeline.parameters.provision_only >>]
+    jobs:
+      - hold-provision:
+          type: approval
+          filters:
+            branches:
+              only: [main, provison-only]
+
+      - provision-stack:
+          context: [pod-verifier-aws]
+          requires: [hold-provision]
+          filters:
+            branches:
+              only: [main, provision-only]
